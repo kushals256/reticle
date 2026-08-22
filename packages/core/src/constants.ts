@@ -223,6 +223,8 @@ export const ReticleDir = {
    * questions about the product; this answers the user's question about their own work.
    */
   IMPACT_FILE: 'impact.json',
+  /** what changes were SUPPOSED to make true —.reticle/intent.json (git-checked, reviewed) */
+  INTENT_FILE: 'intent.json',
   /** opt-in pixel baselines —.reticle/visual/<name>.png + <name>.diff.png. */
   VISUAL_SUBDIR: 'visual',
   /** verification-run artifacts —.reticle/runs/<runId>.json (the OEM/CI-consumable verdict). */

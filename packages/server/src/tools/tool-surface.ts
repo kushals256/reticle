@@ -214,6 +214,9 @@ export const EXTENDED_TOOL_NAMES: ReadonlySet<string> = new Set([
   ReticleTool.CAPABILITIES,
   ReticleTool.FLOW_SAVE,
   ReticleTool.FLOW_REPLAY,
+  // New and unproven, so it does not take a default-surface slot under the cap. Same terms the
+  // capabilities demotion set: reachable in one reticle_run hop by any agent that wants it.
+  ReticleTool.INTENT,
   ReticleTool.RECORD,
   ReticleTool.SCREENSHOT,
   ReticleTool.VISUAL_DIFF,

@@ -22,6 +22,7 @@ import { CONTRACT_TOOLS } from './contract-tools.js';
 import { DOMAIN_TOOLS } from '../domain/domain-tools.js';
 import { BROWSER_TOOLS } from './browser-tools.js';
 import { FLOW_TOOLS } from '../flows/flow-tools.js';
+import { INTENT_TOOLS } from '../intent/intent-tools.js';
 import { PROJECT_TOOLS } from '../project/project-tools.js';
 import { RUN_TOOLS } from '../runs/run-tools.js';
 import { VISUAL_TOOLS } from '../visual/visual-tools.js';
@@ -525,6 +526,7 @@ const RAW_TOOLS: ToolDef[] = [
   // reticle_capabilities (live | fromDisk) + reticle_contract_save. See contract-tools.ts.
   ...RECONCILE_TOOLS,
   ...CONTRACT_TOOLS,
+  ...INTENT_TOOLS,
   ...DOMAIN_TOOLS,
   // reticle_flow_save / reticle_flow_list / reticle_flow_load. See flow-tools.ts.
   ...FLOW_TOOLS,

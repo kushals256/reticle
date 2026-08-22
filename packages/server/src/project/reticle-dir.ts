@@ -26,6 +26,8 @@ export interface ReticleDirPaths {
   project: string;
   /**.../.reticle/impact.json (what Reticle has done for this user, local only) */
   impact: string;
+  /**.../.reticle/intent.json (what changes were supposed to make true — git-checked) */
+  intent: string;
   /**.../.reticle/visual (PNG baselines + diffs) */
   visual: string;
   /**.../.reticle/runs (verification-run artifacts) */
@@ -52,6 +54,7 @@ export function reticleDirPaths(root: string): ReticleDirPaths {
     baselines: join(root, ReticleDir.BASELINES_SUBDIR),
     project: join(root, ReticleDir.PROJECT_FILE),
     impact: join(root, ReticleDir.IMPACT_FILE),
+    intent: join(root, ReticleDir.INTENT_FILE),
     visual: join(root, ReticleDir.VISUAL_SUBDIR),
     runs: join(root, ReticleDir.RUNS_SUBDIR),
     sessions: join(root, ReticleDir.SESSIONS_SUBDIR),

@@ -115,6 +115,7 @@ export const SESSION_EXEMPT_TOOLS: ReadonlySet<string> = new Set([
   ReticleTool.FLOW_REPLAY, // returns its own FlowReplayResult contract (+ auto-records a run)
   ReticleTool.FLOW_SAVE_RECORDED, // reads the recording buffer, writes disk
   ReticleTool.FLOW_HEAL, // returns its own FlowHealResult contract
+  ReticleTool.INTENT, // reads/writes .reticle/intent.json; sessionId only picks the project
   ReticleTool.PROJECT, // reads .reticle/project.json
   ReticleTool.RUN_EXPORT, // reads .reticle/runs/<id>.json (verification-run artifact)
   ReticleTool.SESSION, // merged lifecycle/human-channel family (tune/yield/end/resume/messages/review/narrate)
