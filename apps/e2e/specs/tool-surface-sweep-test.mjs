@@ -23,7 +23,7 @@
 //   - no response tells the agent its own bad call may be a Reticle bug;
 //   - the tools that require a driven browser actually work when one is driven.
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { McpStdioClient } from '../../../bench/harness/mcp-client.mjs';
 import { waitForSession } from '../wait-for-session.mjs';
 
@@ -52,11 +52,19 @@ const RUN_TOOL = 'reticle_run';
  * floor of 40 here outlived that change by a whole release and failed the battery on the cap
  * working as designed.
  */
-// 28 since change/flows/affected/coverage/crawl merged into `reticle_verify` — three of those five
-// were advertised here, so one name stands where three did. Kept in step with
-// `surface-sizes.test.ts`, which asserts the same number in the fast gate; this is the check that it
-// is true over a REAL MCP connection rather than over an in-process list.
-const EXTENDED_SURFACE_SIZE = 28;
+// Derived, not restated. This was a hardcoded 28 with a comment promising it was "kept in step
+// with surface-sizes.test.ts", which is the same promise that file makes about every other copy of
+// the number: it is the single source and everything else points at it. A fifth copy living out
+// here could only be kept in step by remembering, and adding `reticle_intent` is exactly the moment
+// nobody does. The unit gate cannot see this file, so the drift surfaced eight minutes into the
+// battery instead of in the fast gate.
+//
+// Reading it from the built server keeps the check meaningful: the assertion below is still that a
+// REAL MCP connection advertises the surface, and it is now impossible for it to disagree with the
+// surface for the boring reason.
+const { TOOL_SURFACE } = await import(pathToFileURL(path.join(ROOT, 'packages/server/dist/tools/tool-surface.js')).href);
+const { advertisedTools } = await import(pathToFileURL(path.join(ROOT, 'packages/server/dist/mcp/mcp.js')).href);
+const EXTENDED_SURFACE_SIZE = advertisedTools(TOOL_SURFACE.ALL).length;
 
 const client = new McpStdioClient(
   'node',
