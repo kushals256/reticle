@@ -12,9 +12,10 @@
 //   - selector detection not full, or consequence detection not full (REPLAY)
 //   - per-run replay tokens rise > TOKEN_TOL vs the last row (REPLAY)
 import { readFileSync, existsSync } from 'node:fs';
+import { TOKEN_TOL, declaredBudgetOf, tokenVerdict } from './token-budget.mjs';
+import { parityVerdict } from './playwright-parity.mjs';
 
 const VE_TOL = 0.03; // VE may dip at most 3% vs last (noise) before it's a regression
-const TOKEN_TOL = 0.05; // per-run replay tokens may rise at most 5% vs last
 
 function readRaw(path) {
   return existsSync(path) ? JSON.parse(readFileSync(path, 'utf8')) : null;
@@ -130,6 +131,21 @@ if (analysis !== null) {
 
   if (rcr === null || rcr < 1.0) failures.push(`RCR floor: reticle RCR=${rcr} (must be 1.0)`);
   if (fp > 0) failures.push(`false positives: reticle FP=${fp} (must be 0)`);
+
+  // The claim the product is SOLD on, and until now the only one nothing defended: every other
+  // dimension here compares us against ourselves, so none would notice the day we drift past
+  // Playwright. See playwright-parity.mjs for why the two halves are not symmetric.
+  const parity = parityVerdict({
+    reticle,
+    playwright: analysis.per_tool?.playwright ?? {},
+    declaredCostlier: analysis.cost?.playwright_parity?.costlier_because,
+  });
+  if (!parity.ok) failures.push(parity.reason);
+  scorecard.push([
+    'Observe · vs Playwright',
+    `${analysis.per_tool?.playwright?.avg_tokens_o200k ?? '—'} tok @ ${analysis.per_tool?.playwright?.detection_accuracy ?? '—'}`,
+    `${reticle.avg_tokens_o200k ?? '—'} tok @ ${reticle.detection_accuracy ?? '—'}`,
+  ]);
   const lastVe = prev?.per_tool?.reticle?.ve ?? null;
   if (lastVe !== null && ve !== null && ve < lastVe * (1 - VE_TOL)) {
     failures.push(
@@ -208,13 +224,17 @@ if (stateOracle !== null) {
 if (cost !== null) {
   const now = cost.per_run?.reticle_replay_mean_tokens ?? null;
   const last = lastC?.replay_mean_tokens ?? null;
-  if (last !== null && now !== null && now > last * (1 + TOKEN_TOL)) {
-    failures.push(
-      `replay tokens rose: ${now} > ${last} (+${(((now - last) / last) * 100).toFixed(1)}%)`,
-    );
-  }
+  // A rise is either chosen or unnoticed, and the gate cannot tell those apart on its own. A run
+  // that MEANT to spend more declares it; anything else is drift. See token-budget.mjs.
+  const budget = declaredBudgetOf(cost);
+  const tokens = tokenVerdict({ now, last, budget });
+  if (!tokens.ok) failures.push(tokens.reason);
   note('Replay · tokens/run', last, now);
-  scorecard.push(['Replay · tokens/run', last ?? '—', now]);
+  scorecard.push([
+    'Replay · tokens/run',
+    last ?? '—',
+    budget > 0 ? `${now} (+${budget} declared)` : now,
+  ]);
 }
 
 // ---- Report ----
