@@ -35,6 +35,7 @@ import {
 } from '../session/output-budget.js';
 import { healthEnvelope, bufferEnvelope } from '../session/session-health.js';
 import type { Session } from '../session/session.js';
+import type { Predicate } from '../events/predicate.js';
 import {
   assertsDerivedIpcStatus,
   DERIVED_IPC_STATUS_ADVICE,
@@ -42,6 +43,7 @@ import {
   PRESENCE_ONLY_ADVICE,
 } from './assert-grade.js';
 import { assertVerdict } from './assert-verdict.js';
+import { assertSource } from './assert-source.js';
 import { isChangeUndeclared } from '../honesty/undeclared-change.js';
 import { openSessionIntents } from '../intent/open-intents.js';
 import { bodiesNotCaptured } from '../honesty/uncaptured-bodies.js';
@@ -63,19 +65,24 @@ const bufferOutputShape = {
 };
 
 /**
- * Where to look when a failure has no element.
+ * The file:line an assertion may report — see `assertSource`.
  *
- * "the signal never fired", "the request was never made", "the store did not change" have no DOM node
- * to map to a component, so the file:line that covers element failures leaves exactly the failures
- * that most need explaining with nowhere to send the agent. The handler that should have fired the
- * signal lives with the control that was clicked, and the act path captured that control's source —
- * so a failing assertion can point there instead of at nothing.
- *
- * RED only: on a pass this is noise on the path the agent walks most.
+ * Neither `reticle_assert` nor `reticle_wait_for` drives anything, so the last act's source is about
+ * some earlier action and not about this verdict. The pointer comes from the assertion's own matched
+ * evidence; the last driven control is borrowed only for a RED whose predicate has no DOM clause at
+ * all, which is the failure that genuinely has no element to point at.
  */
-function lastActSourceOnFailure(session: Session, pass: boolean): { source?: string } {
-  if (pass) return {};
-  const source = session.lastAct.source();
+function assertionSource(
+  session: Session,
+  predicate: Predicate,
+  verdict: { pass: boolean; evidence?: unknown },
+): { source?: string } {
+  const source = assertSource({
+    predicate,
+    evidence: verdict.evidence,
+    pass: verdict.pass,
+    lastActSource: session.lastAct.source(),
+  });
   return source === undefined ? {} : { source };
 }
 
@@ -303,7 +310,7 @@ export const OBSERVE_TOOLS: ToolDef[] = [
         .string()
         .optional()
         .describe(
-          'On a FAILING assertion, the `file:line` of the control last acted on — where the code that should have produced the missing signal/request/state change lives. Present only when an act preceded this assertion.',
+          'Where the code behind this verdict lives, as `file:line`. For an element/text assertion it is the matched element itself; for a FAILING signal/net/state assertion — which has no element to point at — it is the control last acted on, where the handler that should have fired lives. OMITTED when neither is known: this tool never borrows an unrelated location.',
         ),
     },
     handler: async (deps, args) => {
@@ -322,7 +329,7 @@ export const OBSERVE_TOOLS: ToolDef[] = [
       // and the buffer envelope, so a verdict reached over an evicted window says so.
       return withControl(session, {
         ...verdict,
-        ...lastActSourceOnFailure(session, verdict.pass),
+        ...assertionSource(session, predicate, verdict),
         ...healthEnvelope(session),
         ...bufferEnvelope(session),
       });
@@ -401,7 +408,7 @@ export const OBSERVE_TOOLS: ToolDef[] = [
         .string()
         .optional()
         .describe(
-          'On a FAILING assertion, the `file:line` of the control last acted on — where the code that should have produced the missing signal/request/state change lives. Present only when an act preceded this assertion.',
+          'Where the code behind this verdict lives, as `file:line`. For an element/text assertion it is the matched element itself; for a FAILING signal/net/state assertion — which has no element to point at — it is the control last acted on, where the handler that should have fired lives. OMITTED when neither is known: this tool never borrows an unrelated location.',
         ),
       coverage: z
         .string()
@@ -452,6 +459,7 @@ export const OBSERVE_TOOLS: ToolDef[] = [
         session,
         predicate,
         verdict.pass,
+        verdict.evidence,
         since,
         verdict.inconclusive,
         verdict.observationLost,
@@ -470,7 +478,8 @@ export const OBSERVE_TOOLS: ToolDef[] = [
         ...(gaps.length > 0 ? { instrumentationGaps: gaps } : {}),
         ...advice,
         ...coverage,
-        ...lastActSourceOnFailure(session, verdict.pass),
+        // The SAME pointer the journal keeps, not a second lookup — one verdict, one file:line.
+        ...(verdictEffect.source === undefined ? {} : { source: verdictEffect.source }),
         ...healthEnvelope(session),
         ...bufferEnvelope(session),
       });

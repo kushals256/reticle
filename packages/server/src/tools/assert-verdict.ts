@@ -22,6 +22,7 @@ import { decideVerified } from '../honesty/verified.js';
 import { describeWaitTarget } from '../honesty/unsettled.js';
 import { inFlightRequestLabels, repeatedRequestLabels } from './settle-in-flight.js';
 import { gradeOfPredicate } from './assert-grade.js';
+import { assertSource } from './assert-source.js';
 
 type StateBlindSpot = ReturnType<typeof blindSpotsFromState>[number];
 
@@ -60,6 +61,11 @@ export async function assertVerdict(
   session: Session,
   predicate: Predicate,
   pass: boolean,
+  /**
+   * What the oracle actually looked at. The only thing this verdict is entitled to point at — see
+   * `assertSource`, which reads the matched element descriptors' own `file:line`.
+   */
+  evidence: unknown,
   since: number,
   /** Set when the assertion was never evaluated — see honesty/verified.ts. */
   inconclusive?: string,
@@ -186,9 +192,15 @@ export async function assertVerdict(
     routeSignalFired: false,
   });
   noteSessionGaps(session, gaps);
-  // The source the act path would have written: an assertion drives nothing, so the file:line it can
-  // point at is the one the last act remembered — the same pointer this tool already reports on red.
-  const source = session.lastAct.source();
+  // The one file:line this verdict is entitled to: its own evidence, or — for a failure with no DOM
+  // clause to point at — the control last driven. Returned so the RESPONSE can echo the same value
+  // the journal keeps; one verdict must never carry two different pointers.
+  const source = assertSource({
+    predicate,
+    evidence,
+    pass,
+    lastActSource: session.lastAct.source(),
+  });
   return {
     decision: decision as unknown as Record<string, unknown>,
     contradictions,
