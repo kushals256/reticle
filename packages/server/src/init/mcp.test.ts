@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { claudeAddCommand, claudeExistsProbe, mcpManual, MCP_SERVER_NAME } from './mcp.js';
+import {
+  claudeAddCommand,
+  claudeExistsProbe,
+  mcpManual,
+  mcpWindowsNote,
+  MCP_SERVER_NAME,
+} from './mcp.js';
 
 describe('claudeAddCommand', () => {
   it('registers reticle at user scope via npx (global, all projects)', () => {
@@ -51,5 +57,19 @@ describe('mcpManual', () => {
     expect(m).toContain('claude mcp add reticle -s user');
     expect(m).toContain('globally');
     expect(m).not.toContain('--port');
+  });
+
+  it('includes the Windows cmd fallback', () => {
+    expect(mcpManual()).toContain(mcpWindowsNote());
+  });
+});
+
+describe('mcpWindowsNote', () => {
+  it('registers through cmd /c npx, not bare npx', () => {
+    const n = mcpWindowsNote();
+    expect(n).toContain('cmd');
+    expect(n).toContain('/c');
+    expect(n).toContain('npx');
+    expect(n).toContain('@reticlehq/server');
   });
 });

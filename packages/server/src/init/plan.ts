@@ -13,7 +13,8 @@ import {
   type Detection,
 } from './detect.js';
 import type { FoundStore } from './capabilities.js';
-import { claudeAddCommand, mcpManual } from './mcp.js';
+import { claudeAddCommand, mcpManual, mcpWindowsNote } from './mcp.js';
+import { NodePlatform } from '../platform.js';
 import { mergeCursorConfig, CursorMergeStatus, cursorServerEntry } from './cursor.js';
 import {
   mergeClientConfig,
@@ -207,6 +208,8 @@ export interface PlanInput {
   mcpExists: boolean;
   /** Whether Cursor is installed for this user (its global config dir exists). */
   cursorPresent: boolean;
+  /** `process.platform`. Injected so this module stays pure. Windows is the only branch. */
+  platform?: string;
   /** Whether THIS project has a .cursor/ directory — the signal that Cursor works on this repo. */
   cursorProjectPresent?: boolean | undefined;
   /** Current ~/.cursor/mcp.json content, or null if absent. */
@@ -444,18 +447,33 @@ function mcpSteps(input: PlanInput): Step[] {
   // client. A machine with Cursor AND Windsurf gets both — registering only the first one found is
   // how a user ends up with Reticle in the editor they were not using.
   const steps = [...stepsForAgents(input, (a) => a.mcpStep), ...otherClientSteps(input)];
-  if (steps.length > 0) return steps;
-  // No supported agent detected — print the one-time global instructions. Reached when the `claude`
-  // CLI is absent AND ~/.cursor does not exist, which includes Cursor installed with a fresh profile
-  // that has not written its config directory yet, so the manual text covers both agents.
-  return [
-    {
-      title: 'MCP server (global)',
-      target: MCP_TARGET,
-      status: StepStatus.MANUAL,
-      detail: mcpManual(),
-    },
-  ];
+  if (0 === steps.length) {
+    // No agent detected. mcpManual already carries the Windows cmd fallback — do not append it again.
+    return [
+      {
+        title: 'MCP server (global)',
+        target: MCP_TARGET,
+        status: StepStatus.MANUAL,
+        detail: mcpManual(),
+      },
+    ];
+  }
+  const windowsNote = windowsMcpNoteStep(input);
+  if (windowsNote !== null) steps.push(windowsNote);
+  return steps;
+}
+
+const WINDOWS_MCP_TITLE = 'Windows MCP spawn';
+
+/** Windows only. The reported install never reached mcpManual because `claude mcp add` succeeded. */
+function windowsMcpNoteStep(input: PlanInput): Step | null {
+  if (input.platform !== NodePlatform.WINDOWS) return null;
+  return {
+    title: WINDOWS_MCP_TITLE,
+    target: MCP_TARGET,
+    status: StepStatus.NOTICE,
+    detail: mcpWindowsNote(),
+  };
 }
 
 const SLASH_COMMAND_TITLE = 'The /reticle command';

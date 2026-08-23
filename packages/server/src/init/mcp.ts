@@ -22,11 +22,16 @@ import { MCP_SERVER_NAME } from '@reticlehq/core';
 /**
  * The registered command is STILL bare `npx` on every platform, deliberately.
  *
- * Windows is 66% of Reticle's users (65 of 99 in a day of telemetry) and has NO CI, no fixture, and
- * nothing in this repo has ever run there. Switching the majority platform to a launch command
- * nobody can test — where `.cmd` also has its own spawn caveats in some hosts — risks breaking the
- * users it is meant to help. So the fallback is DOCUMENTED (see mcpManual) rather than defaulted,
- * until somebody can run it on Windows.
+ * Windows is most of Reticle's users and, when this was written, had no CI. There is Windows CI
+ * now, so the `cmd /c` fallback is testable. Defaulting the majority platform to that launch
+ * command is still the riskier change: `.cmd` has spawn caveats in some hosts, and a registration
+ * that works on the machines we can test can still fail in the hosts we cannot. So the fallback
+ * stays documented rather than defaulted.
+ *
+ * What DID change is when it is printed. `mcpManual` used to run only when the `claude` CLI was
+ * absent. The reported Windows install had `claude mcp add` succeed, so the one paragraph that
+ * would have unblocked zero tools never appeared. `mcpWindowsNote` is that paragraph, and init
+ * prints it on every Windows run — including the ones that look like a clean registration.
  */
 export const NPX = 'npx';
 // The `reticle` bin lives in the server package, so `npx <pkg> mcp` runs the bridge without the
@@ -34,6 +39,9 @@ export const NPX = 'npx';
 const RETICLE_PACKAGE = RETICLE_NPM_PACKAGE;
 const MCP_SUBCOMMAND = 'mcp';
 const CLAUDE_CLI = 'claude';
+/** Windows `cmd /c` — the spawn that PowerShell's execution policy does not gate. */
+const WINDOWS_SHELL = 'cmd';
+const WINDOWS_SHELL_C = '/c';
 
 /**
  * Args after `npx` that launch the bridge: `@reticlehq/server mcp`. Portless — the port comes from
@@ -112,6 +120,19 @@ export function claudeAvailableProbe(): { command: string; args: string[] } {
   return { command: CLAUDE_CLI, args: ['--version'] };
 }
 
+/**
+ * The Windows `cmd /c npx` registration. Printed on every Windows init, not only when the `claude`
+ * CLI is missing — a successful `claude mcp add` of bare `npx` is exactly the failure that reported
+ * as a clean install with zero tools.
+ */
+export function mcpWindowsNote(): string {
+  return `On Windows, if the agent cannot start Reticle because npx is blocked ("running scripts is disabled
+on this system" — a PowerShell execution policy), register it through cmd instead, which that policy
+does not gate:
+
+  "${MCP_SERVER_NAME}": { "command": "${WINDOWS_SHELL}", "args": ${JSON.stringify([WINDOWS_SHELL_C, NPX, ...serverInvocation().slice(1)])} }`;
+}
+
 /** Printed when the `claude` CLI isn't available — register Reticle globally once, by hand. */
 export function mcpManual(): string {
   const tail = serverInvocation().join(' ');
@@ -123,9 +144,5 @@ Or, for another agent, add this to its global MCP config (e.g. Cursor's ~/.curso
 
   "${MCP_SERVER_NAME}": { "command": "${NPX}", "args": ${JSON.stringify(serverInvocation().slice(1))} }
 
-On Windows, if the agent cannot start Reticle because npx is blocked ("running scripts is disabled
-on this system" — a PowerShell execution policy), register it through cmd instead, which that policy
-does not gate:
-
-  "${MCP_SERVER_NAME}": { "command": "cmd", "args": ${JSON.stringify(['/c', NPX, ...serverInvocation().slice(1)])} }`;
+${mcpWindowsNote()}`;
 }

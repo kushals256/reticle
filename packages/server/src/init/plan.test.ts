@@ -1,11 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { buildPlan, StepStatus, type PlanInput } from './plan.js';
 import { Framework, PackageManager, UiLibrary, type Detection } from './detect.js';
+import { NodePlatform } from '../platform.js';
 import { cursorRuleFile } from './agent-rules.js';
 
 const CLAUDE_STEP = 'MCP server (Claude, global)';
 const CURSOR_STEP = 'MCP server (Cursor, global)';
 const MCP_STEP = 'MCP server (global)';
+const WINDOWS_MCP_STEP = 'Windows MCP spawn';
 const CONFIG_STEP = 'Reticle config';
 
 function detection(
@@ -29,6 +31,7 @@ function input(partial: Partial<PlanInput>): PlanInput {
     claudeCli: partial.claudeCli ?? true,
     mcpExists: partial.mcpExists ?? false,
     cursorPresent: partial.cursorPresent ?? false,
+    ...(partial.platform === undefined ? {} : { platform: partial.platform }),
     cursorProjectPresent: partial.cursorProjectPresent,
     cursorConfig: partial.cursorConfig ?? null,
     cursorConfigPath: partial.cursorConfigPath ?? '/home/u/.cursor/mcp.json',
@@ -221,6 +224,49 @@ describe('buildPlan — MCP (global, per detected agent)', () => {
       MCP_STEP,
     );
     expect(s.status).toBe(StepStatus.SKIP);
+  });
+
+  /**
+   * Reported from Windows: `claude mcp add` wrote a bare-npx registration, init reported clean,
+   * zero tools appeared, the daemon never started. The cmd fallback lived only in mcpManual, which
+   * that path never prints. A NOTICE on every Windows init is how the fallback becomes visible
+   * without changing the majority-platform launch command.
+   */
+  it('prints the cmd fallback on Windows even when claude already registered us', () => {
+    const plan = buildPlan(
+      input({ claudeCli: true, mcpExists: true, platform: NodePlatform.WINDOWS }),
+    );
+    const s = step(plan, WINDOWS_MCP_STEP);
+    expect(s.status).toBe(StepStatus.NOTICE);
+    expect(s.detail).toContain('cmd');
+    expect(s.detail).toContain('/c');
+    expect(s.detail).toContain('npx');
+  });
+
+  it('does not print the Windows fallback on other platforms', () => {
+    const plan = buildPlan(
+      input({ claudeCli: true, mcpExists: true, platform: NodePlatform.MACOS }),
+    );
+    expect(maybeStep(plan, WINDOWS_MCP_STEP)).toBeUndefined();
+  });
+
+  it('does not print the Windows fallback under --no-mcp', () => {
+    const plan = buildPlan(
+      input({
+        claudeCli: true,
+        platform: NodePlatform.WINDOWS,
+        options: { port: undefined, mcp: false, install: false },
+      }),
+    );
+    expect(maybeStep(plan, WINDOWS_MCP_STEP)).toBeUndefined();
+  });
+
+  it('does not duplicate the Windows fallback when the manual step already carries it', () => {
+    const plan = buildPlan(
+      input({ claudeCli: false, cursorPresent: false, platform: NodePlatform.WINDOWS }),
+    );
+    expect(maybeStep(plan, WINDOWS_MCP_STEP)).toBeUndefined();
+    expect(step(plan, MCP_STEP).detail).toContain('cmd');
   });
 
   it('keeps both agents’ registration portless — the port lives in .reticle.json, not the global config', () => {

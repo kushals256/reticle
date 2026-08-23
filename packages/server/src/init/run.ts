@@ -447,6 +447,7 @@ function gatherPlanInput(options: InitOptions, io: InitIo, pkgRaw: string): Plan
     claudeCli,
     mcpExists,
     cursorPresent,
+    platform: process.platform,
     detectedClients,
     cursorProjectPresent: io.exists(CURSOR_DIR_RELPATH),
     cursorConfig,
