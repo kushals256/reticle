@@ -110,6 +110,20 @@ function flowsForSession(
   return { flows: new FlowStore(deps.fs, resolved.root, { now: deps.now }), root: resolved.root };
 }
 
+/**
+ * How a save reports that nobody said what the flow is for.
+ *
+ * Declared once and shared by every save tool: an undeclared field is stripped from
+ * `structuredContent` by a schema-strict MCP client, so a save path that forgot this line would
+ * report the nudge to the unit tests and to nobody else.
+ */
+const INTENT_GAP_FIELD = z
+  .unknown()
+  .optional()
+  .describe(
+    'Present ONLY when the flow was saved with nothing saying what it is for: { kind, missing, cost, fix }. The flow is on disk either way — this never blocks a save. Close it by saving again with `intent`, or by setting the flow file’s `intentId` to an intent already in the ledger. Nothing here is ever derived from the flow name, the steps or the assertions: a guessed goal reads as the author’s own words.',
+  );
+
 export const FLOW_TOOLS: ToolDef[] = [
   {
     name: ReticleTool.FLOW_SAVE,
@@ -124,6 +138,12 @@ export const FLOW_TOOLS: ToolDef[] = [
         .string()
         .describe(
           'Name for the flow file (saved to .reticle/flows/<flowName>.json). Use again in reticle_flow{action:"load"} / reticle_flow_replay.',
+        ),
+      intent: z
+        .string()
+        .optional()
+        .describe(
+          'What this flow is FOR, in prose: which user does what, and what should become true. Answer it here rather than in a second call. Without it the flow still saves, but the day it goes red the report can only name the step that broke, not the thing that stopped being true.',
         ),
       sessionId: z
         .string()
@@ -151,6 +171,7 @@ export const FLOW_TOOLS: ToolDef[] = [
           warning: z.string().optional(),
         })
         .optional(),
+      intentGap: INTENT_GAP_FIELD,
       error: z.string().optional(),
       code: z.string().optional(),
     },
@@ -165,7 +186,9 @@ export const FLOW_TOOLS: ToolDef[] = [
       }
       // fold any structured annotations (expect/dynamic/success/intent) onto the saved flow.
       const success = deps.annotations.success(name);
-      const intent = deps.annotations.intent(name);
+      // The inline argument wins over an annotation left from an earlier call: it is the more recent
+      // statement, and it is the one the author just typed.
+      const intent = asString(args['intent']) ?? deps.annotations.intent(name);
       const annotations: FlowAnnotations = {
         stepExpect: deps.annotations.stepExpect(name),
         dynamic: deps.annotations.dynamic(name),
@@ -530,6 +553,12 @@ export const FLOW_TOOLS: ToolDef[] = [
         .describe(
           'Override the flow name embedded in the recorded flow. Omit to use the recorder-assigned name.',
         ),
+      intent: z
+        .string()
+        .optional()
+        .describe(
+          'What this flow is FOR, in prose: which user does what, and what should become true. The recorder captures clicks, not goals, so this is the only place the goal can come from. Without it the flow still saves, but the day it goes red the report can only name the step that broke.',
+        ),
       ...{
         sessionId: z
           .string()
@@ -546,6 +575,7 @@ export const FLOW_TOOLS: ToolDef[] = [
       stepCount: z.number().optional(),
       degraded: z.number().optional(),
       empty: z.boolean().optional(),
+      intentGap: INTENT_GAP_FIELD,
       error: z.string().optional(),
       code: z.string().optional(),
     },
@@ -559,7 +589,12 @@ export const FLOW_TOOLS: ToolDef[] = [
         };
       }
       const override = asString(aliasParam(args, 'flowName', ['flow'])['flowName']);
-      const flow = override !== undefined ? { ...recorded.flow, name: override } : recorded.flow;
+      const intent = asString(args['intent']);
+      const flow: FlowFile = {
+        ...recorded.flow,
+        ...(override === undefined ? {} : { name: override }),
+        ...(intent === undefined ? {} : { intent }),
+      };
       // The store stamps the project into the file AND routes it to the per-project subdir (a shared
       // daemon serves many apps), so location and content agree from one source of truth.
       const emptyRecorded = emptyFlowRefusal(flow.steps.length, flow.name);

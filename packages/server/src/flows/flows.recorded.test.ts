@@ -64,7 +64,9 @@ describe('FlowStore.saveFlow — temp-dir fs', () => {
   it('saveFlow writes a valid FlowFile and round-trips via load', async () => {
     const flow = flowFile('checkout', [clickStep('pay'), clickStep('confirm')]);
     const saved = await store.saveFlow(flow);
-    expect(saved).toEqual({
+    // toMatchObject, not toEqual: a save with no declared intent now also carries the `intentGap`
+    // nudge, and these specs are about the summary's counts.
+    expect(saved).toMatchObject({
       ok: true,
       value: { name: 'checkout', stepCount: 2, degraded: 0, empty: false },
     });
@@ -85,7 +87,9 @@ describe('FlowStore.saveFlow — temp-dir fs', () => {
   it('saveFlow of an empty-steps flow → empty:true, still written', async () => {
     const flow = flowFile('empty', []);
     const saved = await store.saveFlow(flow);
-    expect(saved).toEqual({
+    // toMatchObject, not toEqual: a save with no declared intent now also carries the `intentGap`
+    // nudge, and these specs are about the summary's counts.
+    expect(saved).toMatchObject({
       ok: true,
       value: { name: 'empty', stepCount: 0, degraded: 0, empty: true },
     });

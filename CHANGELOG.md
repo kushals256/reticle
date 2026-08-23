@@ -6,6 +6,14 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
 ### Added
 
+- **`@reticlehq/core` + `@reticlehq/server` — a flow saved with no intent now says so, and can be given one in the same call.** A saved flow is a regression test that runs for months. `intent` and `intentId` have both been optional on the flow file and nothing has ever asked for either, so a flow saved silently with neither replays for a long time and then reports "step 3 failed" rather than what stopped being true. The machinery to use an intent was already there; what was missing was anything that asked.
+
+  Every save path now returns an `intentGap` when nothing on disk says what the flow is for: what is missing, what it costs, and the one thing that closes it, in the same vocabulary as the `undeclared-change` gap, because it is the same finding one artifact later. Both `reticle_flow_save` and `reticle_flow_save_recorded` also take an optional `intent` now, so the answer goes in the call that raised the question instead of a second one. `save`, `saveFlow` and the recorded-flow path build their result through one helper, so they cannot drift into three different ways of saying it.
+
+  **It never invents one.** Not from the step names, not from the flow name, not from the assertions: a guessed goal reads as the author's own words and somebody will act on them, which is the rule that already governs the source pointer, the flow intent and the undeclared-change gap.
+
+  **It does not block the save, and it changes no bytes.** A flow saved without an intent is still far better than no flow, and a verification tool that refuses to record work is one people route around. The written file is byte-identical to what the same save produced before, and a flow that already carries prose or an `intentId` hears nothing at all.
+
 - **`@reticlehq/server` — `reticle_verify { action: "coverage" }` now reports whether this session used `reticle_context` and `reticle_intent` at all.** Both features shipped with the same pre-registered disproof — _if agents never call it, cut it_ — and nothing recorded whether they were called, so the disproof could never be run. A feature whose disproof cannot be run is one nobody can kill, which is the same defect that kept the old push-based run context alive.
 
   The new `featureUse` block answers it locally, per session: how many times `reticle_context` was called and at which step, what the intent ledger holds, and the two costs of NOT using either — verdicts drawn while the ledger was empty, and read-only calls that re-fetched a fact the run had already established. It also carries a mechanical proxy for whether calling `reticle_context` changed anything: after each call, did the agent ACT, or did it re-read a subject the context had just supplied. That proxy is proximity in a call sequence and nothing more; what it cannot see is written down beside it.

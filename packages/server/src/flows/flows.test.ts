@@ -62,7 +62,9 @@ describe('FlowStore — temp-dir fs, never touches the repo', () => {
       },
     ]);
     const saved = await store.save(p);
-    expect(saved).toEqual({
+    // toMatchObject, not toEqual: a save with no declared intent now also carries the `intentGap`
+    // nudge, and these specs are about the summary's counts.
+    expect(saved).toMatchObject({
       ok: true,
       value: { name: 'f', stepCount: 1, degraded: 0, empty: false },
     });
@@ -107,7 +109,9 @@ describe('FlowStore — temp-dir fs, never touches the repo', () => {
       },
     ]);
     const saved = await store.save(p);
-    expect(saved).toEqual({
+    // toMatchObject, not toEqual: a save with no declared intent now also carries the `intentGap`
+    // nudge, and these specs are about the summary's counts.
+    expect(saved).toMatchObject({
       ok: true,
       value: { name: 'f', stepCount: 1, degraded: 0, empty: false },
     });
@@ -150,7 +154,9 @@ describe('FlowStore — temp-dir fs, never touches the repo', () => {
       },
     ]);
     const saved = await store.save(p);
-    expect(saved).toEqual({
+    // toMatchObject, not toEqual: a save with no declared intent now also carries the `intentGap`
+    // nudge, and these specs are about the summary's counts.
+    expect(saved).toMatchObject({
       ok: true,
       value: { name: 'f', stepCount: 1, degraded: 1, empty: false },
     });
@@ -205,7 +211,9 @@ describe('FlowStore — temp-dir fs, never touches the repo', () => {
 
   it('7: empty recording saves an empty-but-valid flow (the tested choice)', async () => {
     const saved = await store.save(program('f', []));
-    expect(saved).toEqual({
+    // toMatchObject, not toEqual: a save with no declared intent now also carries the `intentGap`
+    // nudge, and these specs are about the summary's counts.
+    expect(saved).toMatchObject({
       ok: true,
       value: { name: 'f', stepCount: 0, degraded: 0, empty: true },
     });

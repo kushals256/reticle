@@ -1,4 +1,9 @@
-import type { FlowFile } from '@reticlehq/core';
+import {
+  InstrumentationGapKind,
+  instrumentationGap,
+  type FlowFile,
+  type InstrumentationGap,
+} from '@reticlehq/core';
 import { IntentStore } from '../intent/intent-store.js';
 import { classifyFlowAssertions } from './flow-classify.js';
 
@@ -63,6 +68,28 @@ export async function linkFlowIntent(store: IntentStore, flow: FlowFile): Promis
     await store.bind(id, { flow: flow.name });
   }
   return { ...flow, intentId: id };
+}
+
+/**
+ * The nudge a flow saved without an intent earns, or nothing.
+ *
+ * Every save path routes through here, so the three of them cannot drift into three different ways
+ * of saying the same thing. It says it in the vocabulary the instrumentation gaps already use — what
+ * is missing, what it costs, and the one change that closes it — because "nobody said what this is
+ * for" is the same finding `undeclared-change` makes about an edit, one artifact later.
+ *
+ * Deliberately generic. It names no step, no assertion and not even the flow, for the reason this
+ * file already gives twice: anything specific enough to identify the goal is specific enough to be
+ * read AS the goal. It also never fails the save — a flow with no intent is still far better than no
+ * flow, and a verification tool that refuses to record work is one people route around.
+ */
+export function flowIntentGap(flow: FlowFile): InstrumentationGap | undefined {
+  if (intentIdOf(flow) !== undefined) return undefined;
+  return instrumentationGap(
+    InstrumentationGapKind.NO_FLOW_INTENT,
+    'this flow declares no intent, so nothing on disk says what it is meant to prove',
+    'it will replay for months, and the day it goes red the report can only name the step that broke — not the thing that stopped being true — so whoever reads it has to reconstruct the goal from the steps before they can tell a real regression from a moved button',
+  );
 }
 
 /**

@@ -50,6 +50,13 @@ describe('instrumentation gaps', () => {
     expect(fix).toContain('statement');
   });
 
+  /** Same reasoning one artifact later: a saved flow's remedy has to say WHERE to put the prose. */
+  it('names both ways to give a flow its intent', () => {
+    const fix = fixForGap(InstrumentationGapKind.NO_FLOW_INTENT);
+    expect(fix).toContain('intent');
+    expect(fix).toContain('intentId');
+  });
+
   it('omits source and ref rather than carrying empty ones', () => {
     const gap = instrumentationGap(InstrumentationGapKind.NO_ROUTE_SIGNAL, 'm', 'c');
     expect('source' in gap).toBe(false);

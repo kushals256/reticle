@@ -14,11 +14,12 @@ import type {
   FlowFile,
   FlowStep,
   HealChange,
+  InstrumentationGap,
 } from '@reticlehq/core';
 import { ReticleTool } from '../tools/tool-names.js';
 import { asString, asRecord } from '../tools/tools-helpers.js';
 import { applyHealChanges } from './heal.js';
-import { linkFlowIntent } from './flow-intent.js';
+import { flowIntentGap, linkFlowIntent } from './flow-intent.js';
 import { IntentStore } from '../intent/intent-store.js';
 import type { CompiledProgram, RecordedStep } from './recordings.js';
 import type { FileSystemPort } from '../project/fs-port.js';
@@ -173,6 +174,11 @@ interface SaveSummary {
   stepCount: number;
   degraded: number;
   empty: boolean;
+  /**
+   * Present only when the flow was saved with nothing saying what it is for. Never blocks the save,
+   * and absent the moment the flow carries prose or an `intentId`. See `flowIntentGap`.
+   */
+  intentGap?: InstrumentationGap;
 }
 
 /**
@@ -241,6 +247,25 @@ export class FlowStore {
   }
 
   /**
+   * What a caller is told about a flow that just landed on disk.
+   *
+   * Both save paths build it here rather than each assembling their own object, because the two used
+   * to be duplicates and the intent nudge is exactly the kind of field that gets added to one of a
+   * pair. A flow saved by the recorder and a flow saved from a compiled recording are the same
+   * regression test, and must not report differently for having arrived by a different door.
+   */
+  #summary(flow: FlowFile): SaveSummary {
+    const gap = flowIntentGap(flow);
+    return {
+      name: flow.name,
+      stepCount: flow.steps.length,
+      degraded: flow.steps.filter((s) => true === s.degraded).length,
+      empty: 0 === flow.steps.length,
+      ...(gap === undefined ? {} : { intentGap: gap }),
+    };
+  }
+
+  /**
    * Convert a CompiledProgram (testid-normalized) into an anchored, on-disk flow + write it.
    * Optionally fold structured annotations (per-step expect, dynamic[], success) onto
    * the flow before writing. Omitting `annotations` reproduces the same bytes.
@@ -265,16 +290,7 @@ export class FlowStore {
     const flow = await this.#linkIntent(withAnnotations(base, annotations));
     await this.#fs.mkdir(flowDir(this.#root, pid));
     await this.#fs.writeFile(flowPath(this.#root, program.name, pid), this.#serialize(flow));
-    const degraded = flow.steps.filter((s) => true === s.degraded).length;
-    return {
-      ok: true,
-      value: {
-        name: program.name,
-        stepCount: flow.steps.length,
-        degraded,
-        empty: 0 === flow.steps.length,
-      },
-    };
+    return { ok: true, value: this.#summary(flow) };
   }
 
   /**
@@ -296,16 +312,7 @@ export class FlowStore {
       flowPath(this.#root, asFlowName(valid.name), pid),
       this.#serialize(valid),
     );
-    const degraded = valid.steps.filter((s) => true === s.degraded).length;
-    return {
-      ok: true,
-      value: {
-        name: valid.name,
-        stepCount: valid.steps.length,
-        degraded,
-        empty: 0 === valid.steps.length,
-      },
-    };
+    return { ok: true, value: this.#summary(valid) };
   }
 
   /**
