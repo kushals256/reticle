@@ -100,7 +100,6 @@ describe('nextActionFor', () => {
     const next = nextActionFor({
       everConnected: false,
       initialized: false,
-      previouslyConnected: undefined,
       listening: [5173],
       dev: DEV,
       configsElsewhere: [{ directory: '/repo/apps/client', projectId: 'client' }],
