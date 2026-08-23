@@ -42,6 +42,13 @@ interface NextActionFacts {
    * that works.
    */
   previouslyConnected?: boolean;
+  /**
+   * A `.reticle.json` we actually read in another directory. Outranks `initialized`, which is only
+   * ever a claim about THIS directory: in a monorepo the daemon often stands at the root while the
+   * app's config lives under `apps/…`, and handing back `reticle init` is the one action that
+   * cannot help and can overwrite the config that works.
+   */
+  configsElsewhere?: readonly { directory: string; projectId?: string }[];
 }
 
 /** `reticle init`, the only command here that is Reticle's own and so cannot be wrong. */
@@ -87,6 +94,24 @@ export function nextActionFor(facts: NextActionFacts): NoSessionNextAction {
   // a second port is the exact confusion the probe exists to prevent.
   const ports = facts.listening.join(', ');
   const only = 1 === facts.listening.length ? facts.listening[0] : undefined;
+  const elsewhere = facts.configsElsewhere ?? [];
+
+  if (!facts.initialized && 0 < elsewhere.length) {
+    const named = elsewhere
+      .map((c) => (c.projectId === undefined ? c.directory : `${c.directory} ('${c.projectId}')`))
+      .join(', ');
+    return {
+      action: NoSessionAction.OPEN_APP,
+      ...(only === undefined
+        ? {}
+        : { command: `${OPEN_COMMAND} ${LOCALHOST}:${String(only)}`, port: only }),
+      reason:
+        `a \`.reticle.json\` was found outside this daemon's directory (${named}), so the app is ` +
+        'wired and this is a scope problem, not an install problem. Restart the daemon from that ' +
+        'app directory, or acquire a lease with its projectId. Do not run init — it would overwrite ' +
+        'a config that works. Reticle only ever sees a page a browser has loaded.',
+    };
+  }
 
   if (!facts.initialized && true !== facts.previouslyConnected) {
     return {

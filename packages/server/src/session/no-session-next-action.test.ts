@@ -96,6 +96,21 @@ describe('nextActionFor', () => {
     expect(next.reason).toContain('5173, 8080');
   });
 
+  it('a config found in another directory is not run_init — that overwrites a config that works', () => {
+    const next = nextActionFor({
+      everConnected: false,
+      initialized: false,
+      previouslyConnected: undefined,
+      listening: [5173],
+      dev: DEV,
+      configsElsewhere: [{ directory: '/repo/apps/client', projectId: 'client' }],
+    });
+    expect(next.action).not.toBe(NoSessionAction.RUN_INIT);
+    expect(next.command).not.toBe('reticle init');
+    expect(next.reason).toContain('/repo/apps/client');
+    expect(next.reason).not.toMatch(/no `\.reticle\.json` was found/);
+  });
+
   it('a session was here and went away: reopen, whatever the ports say', () => {
     const next = nextActionFor({
       everConnected: true,

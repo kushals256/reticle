@@ -204,8 +204,19 @@ export function startNoSessionWatch(options: NoSessionWatchOptions): () => void 
   const timer = setInterval(refresh, REFRESH_MS);
   timer.unref();
 
-  const nextAction = (): NoSessionNextAction =>
-    nextActionFor({
+  const configsFoundElsewhere = (): readonly { directory: string; projectId?: string }[] => {
+    if (isWired()) return [];
+    return discoverProjectConfigs(directory)
+      .found.filter((c) => c.directory !== directory)
+      .map((c) => ({
+        directory: c.directory,
+        ...(c.projectId === undefined ? {} : { projectId: c.projectId }),
+      }));
+  };
+
+  const nextAction = (): NoSessionNextAction => {
+    const elsewhere = configsFoundElsewhere();
+    return nextActionFor({
       everConnected: options.sessions.everConnected(),
       initialized: isWired(),
       previouslyConnected: connectedBefore(),
@@ -213,7 +224,9 @@ export function startNoSessionWatch(options: NoSessionWatchOptions): () => void 
       // Read when asked, like everything else here: a `package.json` can gain a dev script, and a
       // daemon that cached "there is none" at boot would keep saying so for the rest of the day.
       dev: detectDevCommand(directory),
+      ...(0 === elsewhere.length ? {} : { configsElsewhere: elsewhere }),
     });
+  };
 
   options.sessions.setNoSessionNextAction(nextAction);
 
@@ -242,15 +255,10 @@ export function startNoSessionWatch(options: NoSessionWatchOptions): () => void 
           ? {}
           : (() => {
               const discovery = discoverProjectConfigs(directory);
-              const elsewhere = discovery.found.filter((c) => c.directory !== directory);
+              const elsewhere = configsFoundElsewhere();
               return 0 === elsewhere.length
                 ? { searchedDirectories: discovery.searched }
-                : {
-                    configsElsewhere: elsewhere.map((c) => ({
-                      directory: c.directory,
-                      ...(c.projectId === undefined ? {} : { projectId: c.projectId }),
-                    })),
-                  };
+                : { configsElsewhere: elsewhere };
             })()),
         // The one fact that outranks every absence below it, and the reason a fresh daemon stopped
         // claiming that an install which has demonstrably worked has never worked.

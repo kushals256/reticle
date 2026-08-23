@@ -10,7 +10,9 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { NoSessionAction } from '@reticlehq/core';
 import { diagnoseNoSession } from './no-session-diagnosis.js';
+import { nextActionFor } from './no-session-next-action.js';
 
 describe('a config found somewhere else is named, not ignored', () => {
   it('names the directory of a config found outside the daemon cwd', () => {
@@ -74,5 +76,31 @@ describe('a config found somewhere else is named, not ignored', () => {
       port: 4400,
     });
     expect(why).not.toMatch(/I looked in:/);
+  });
+});
+
+describe('the two halves of a sessions payload cannot disagree about whether a config was found', () => {
+  it('when why names a discovered config, next_action.reason must not say none was found', () => {
+    const configsElsewhere = [{ directory: '/repo/apps/client', projectId: 'client' }];
+    const why = diagnoseNoSession({
+      everConnected: false,
+      initialized: false,
+      listening: [5173],
+      port: 4400,
+      directory: '/repo',
+      configsElsewhere,
+    });
+    const next = nextActionFor({
+      everConnected: false,
+      initialized: false,
+      listening: [5173],
+      dev: undefined,
+      configsElsewhere,
+    });
+    expect(why).toMatch(/WAS found|\.reticle\.json/);
+    expect(why).toContain('/repo/apps/client');
+    expect(next.action).not.toBe(NoSessionAction.RUN_INIT);
+    expect(next.reason).not.toMatch(/no `\.reticle\.json` was found/);
+    expect(next.reason).toContain('/repo/apps/client');
   });
 });
