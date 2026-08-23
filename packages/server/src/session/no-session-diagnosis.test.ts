@@ -407,10 +407,9 @@ describe('an uninstrumented project with no server is told BOTH things at once',
  * This is the `why` field an AGENT reads, and doctor's version is one a human runs. The agent was
  * getting the vaguer of the two.
  *
- * Deliberately NOT a scan of other Reticle ports, which is the other half of #261. A listener on a
- * neighbouring port is not evidence that it is the daemon this app wants, and asserting that it is
- * would be the same confident-but-unobserved claim #310 exists to stamp out. A configured port that
- * disagrees with the bound port IS observed, exactly, from a file we read.
+ * A configured port that disagrees with the bound port IS observed, exactly, from a file we read.
+ * A listener on a neighbouring Reticle port is a separate observation, rendered without a conclusion
+ * — that half of #261 lives in the describe below this one.
  */
 describe('a configured port that disagrees with the bound port is named, not hinted at', () => {
   const wiredAndListening = {
@@ -438,6 +437,64 @@ describe('a configured port that disagrees with the bound port is named, not hin
     // would fire on every plugin-wired app in existence.
     const why = diagnoseNoSession(wiredAndListening);
     expect(why).not.toContain('disagree');
+  });
+});
+
+/**
+ * A listener on a well-known Reticle port we are not bound to is observable. It is not a diagnosis.
+ *
+ * This is the remaining half of #261. The SDK dialling 4460 while we listen on 4400 is invisible
+ * to us as a refused inbound, but a listener on 4460 is visible, and saying nothing about it is how
+ * the original silent no-connect survived. Saying it IS the daemon this app wants would be the same
+ * unobserved claim #310 exists to remove — somebody else's daemon, another project, and an unrelated
+ * process all look identical from here.
+ *
+ * So: name the ports, refuse the conclusion. The probe lives at the call site; this only renders
+ * facts it was given, like every other clause in this file.
+ */
+describe('a listener on a sibling Reticle port is named without being blamed', () => {
+  const wiredAndListening = {
+    everConnected: false,
+    initialized: true,
+    listening: [5173],
+    port: 4400,
+  };
+
+  it('names the occupied sibling and this daemon, and hedges the link', () => {
+    const why = diagnoseNoSession({ ...wiredAndListening, siblingListeners: [4460] });
+    expect(why).toContain(':4460');
+    expect(why).toContain(':4400');
+    expect(why).toMatch(/may or may not be related/);
+    expect(why).not.toMatch(/SDK will dial|SDK is dialling/i);
+    expect(why).not.toMatch(/the daemon this app wants/i);
+  });
+
+  it('says nothing when no sibling is occupied, so a healthy box does not gain a scare', () => {
+    const why = diagnoseNoSession(wiredAndListening);
+    expect(why).not.toMatch(/may or may not be related/);
+  });
+
+  it('does not repeat a sibling that the configured-port mismatch already named', () => {
+    // Both numbers are already in the mismatch sentence. Saying 4460 is occupied on top of that
+    // reads as a second, independent cause, which it is not — it is the same disagreement.
+    const why = diagnoseNoSession({
+      ...wiredAndListening,
+      projectPort: 4460,
+      siblingListeners: [4460],
+    });
+    const related = why.match(/may or may not be related/g) ?? [];
+    expect(related).toHaveLength(0);
+    expect(why).toContain('4460');
+  });
+
+  it('still reports a sibling that is not the configured-port mismatch', () => {
+    const why = diagnoseNoSession({
+      ...wiredAndListening,
+      projectPort: 4401,
+      siblingListeners: [4460],
+    });
+    expect(why).toMatch(/may or may not be related/);
+    expect(why).toContain(':4460');
   });
 });
 

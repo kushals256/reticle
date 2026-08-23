@@ -18,7 +18,8 @@
  * row added and never documented.
  *
  * NOT every row prints on every run. `version` prints only on skew, `port check` only on a
- * mismatch, `desktop` only on a desktop project, and `sessions` only when a daemon answered. The
+ * mismatch, `sibling` only when a well-known Reticle port other than ours has a listener,
+ * `desktop` only on a desktop project, and `sessions` only when a daemon answered. The
  * vocabulary is therefore "what this command can print", not "what one run printed" — a guard built
  * by scraping a single invocation would silently stop covering the conditional rows, which are
  * exactly the ones a reader is least likely to have seen before.
@@ -33,6 +34,7 @@ export const DoctorRow = {
   SESSIONS: 'sessions',
   BRIDGE_PORT: 'bridge port',
   PORT_CHECK: 'port check',
+  SIBLING: 'sibling',
   DAEMON_LOG: 'daemon log',
   TRACING: 'tracing',
   DESKTOP: 'desktop',

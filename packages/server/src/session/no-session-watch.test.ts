@@ -80,4 +80,25 @@ describe('the no-session diagnosis and a config written after boot', () => {
     stop();
     expect(message).toMatch(/no `\.reticle\.json`/);
   });
+
+  it('names a sibling Reticle listener as an observation, not a cause', async () => {
+    const dir = projectDir(JSON.stringify({ framework: 'vite', projectId: 'app-1' }));
+    const { manager, hint } = stubSessions();
+    const stop = startNoSessionWatch({
+      sessions: manager,
+      port: 4400,
+      initialized: true,
+      directory: dir,
+      probe: () => Promise.resolve([5173]),
+      occupiedSiblings: () => Promise.resolve([4460]),
+    });
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    const message = hint();
+    stop();
+    expect(message).toContain(':4460');
+    expect(message).toMatch(/may or may not be related/);
+    expect(message).not.toMatch(/the daemon this app wants/i);
+  });
 });

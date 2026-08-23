@@ -21,6 +21,7 @@
 
 import { leaseCaveat, type LeaseBrowserState } from './lease-availability.js';
 import { DEV_SERVER_PORTS } from '../cli/cli-port.js';
+import { siblingListenerNote } from '../cli/sibling-ports.js';
 import { STALL_AFTER_MS } from './stall-clock.js';
 
 export interface NoSessionFacts {
@@ -118,6 +119,16 @@ export interface NoSessionFacts {
    * install never finished" to the user-facing diagnosis rather than only to telemetry.
    */
   daemonUpMs?: number;
+  /**
+   * Well-known Reticle ports other than `port` that currently accept a connection.
+   *
+   * Remaining half of #261. We cannot see an SDK dialling a port we are not on, but we can see that
+   * a well-known Reticle port has a listener. That is an observation: somebody else's daemon, another
+   * project, and an unrelated process all look the same from here. The sentence that reports it
+   * names the ports and refuses the conclusion. Absent or empty means nothing else was listening,
+   * which is the common case and must not gain a paragraph.
+   */
+  siblingListeners?: readonly number[];
 }
 
 /** The one framework whose most likely cause differs from every other framework's. */
@@ -346,6 +357,25 @@ function portMismatchClause(facts: NoSessionFacts): string {
 }
 
 /**
+ * A listener on a well-known Reticle port we did not bind. Observation, not a cause.
+ *
+ * Leading space so the caller can concatenate it unconditionally. Empty when there is nothing to
+ * say, including when the occupied sibling is already the configured-port mismatch — that sentence
+ * already named both numbers, and repeating 4460 as a second "cause" would overclaim.
+ */
+function siblingListenerClause(facts: NoSessionFacts): string {
+  const occupied = facts.siblingListeners ?? [];
+  if (0 === occupied.length) return '';
+  const mismatch = facts.projectPort;
+  const extra =
+    mismatch !== undefined && mismatch !== facts.port
+      ? occupied.filter((port) => port !== mismatch)
+      : occupied;
+  const note = siblingListenerNote(facts.port, extra);
+  return note === undefined ? '' : ` ${note}`;
+}
+
+/**
  * The tail every "the app is wired and silent" branch ends with, ranked.
  *
  * One place, because the ranking is the whole fix: a hint that lists "no server", "no SDK" and
@@ -357,7 +387,7 @@ function rankedCauses(facts: NoSessionFacts): string {
   return (
     `${nuxt}${REAL_CAUSES} If none of those, the app may be dialling a different daemon than this ` +
     `one (on ${String(facts.port)}): check the app's reticle port matches ` +
-    `${String(facts.port)}.${portMismatchClause(facts)} ${NON_LOCALHOST_GATE}`
+    `${String(facts.port)}.${portMismatchClause(facts)}${siblingListenerClause(facts)} ${NON_LOCALHOST_GATE}`
   );
 }
 
@@ -498,7 +528,7 @@ export function diagnoseNoSession(facts: NoSessionFacts): string {
         `file ${INIT_CMD} writes, so the app may carry no Reticle SDK — but check the app's ` +
         'OWN directory before re-running `init`: in a monorepo the daemon often runs at the root ' +
         'while the app lives in a subdirectory, and an app wired by the Vite or Babel plugin ' +
-        `carries the SDK without that file at all.${searchedClause(facts)} ${leaseAdvice(URL_THEN_LEASE, facts)} ${RETRY}`
+        `carries the SDK without that file at all.${searchedClause(facts)}${siblingListenerClause(facts)} ${leaseAdvice(URL_THEN_LEASE, facts)} ${RETRY}`
       );
     }
     return (
@@ -518,10 +548,8 @@ export function diagnoseNoSession(facts: NoSessionFacts): string {
       // Deliberately NOT offering reticle_lease here, and a test pins that: a lease opens a URL, and
       // if nothing is listening there is nothing at any URL to open. Asking for the real one is the
       // only move that can recover the :7699 case.
-      `the app IS running, ask the human for its URL rather than assuming it is down. ${leaseAdvice(URL_THEN_LEASE, facts)} ` +
-      // Reachable only for a project that HAS been through `init` — the uninstrumented case is
-      // answered above, leading with that certainty instead of behind this scan's guess.
-      `${RETRY}`
+      `the app IS running, ask the human for its URL rather than assuming it is down. ${leaseAdvice(URL_THEN_LEASE, facts)}` +
+      `${siblingListenerClause(facts)} ${RETRY}`
     );
   }
 
@@ -534,7 +562,7 @@ export function diagnoseNoSession(facts: NoSessionFacts): string {
       "a subdirectory, or in an app wired by the Vite or Babel plugin. Check the app's OWN " +
       `directory: if it has no config, run ${INIT_CMD} there and restart the dev server; if it ` +
       `has one, the app is wired and simply has no page open — ${OPEN_CMD}. ` +
-      `${unattributedListeners(listening)}${searchedClause(facts)} ${RETRY}`
+      `${unattributedListeners(listening)}${searchedClause(facts)}${siblingListenerClause(facts)} ${RETRY}`
     );
   }
 

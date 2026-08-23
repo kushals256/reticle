@@ -22,6 +22,7 @@ import {
   readProjectPort,
 } from './cli-port.js';
 import { DoctorRow, doctorRow } from './doctor-rows.js';
+import { findOccupiedSiblings, siblingListenerNote } from './sibling-ports.js';
 
 /**
  * `reticle doctor` — collapse the ~6 independent first-run failure modes into one command. Checks the
@@ -108,6 +109,12 @@ export async function handleDoctor(port: number): Promise<void> {
   const projectPort = readProjectPort(process.cwd());
   const mismatch = diagnosePortMismatch(port, projectPort);
   if (mismatch !== undefined) line(doctorRow(DoctorRow.PORT_CHECK, `✗ ${mismatch}`));
+  // Remaining half of #261. The SDK dialling a port we are not on is invisible as a refused inbound,
+  // but a listener on a well-known Reticle port is visible. Report the observation; do not conclude
+  // it is the daemon this app wants — somebody else's daemon looks the same from here.
+  const occupiedSiblings = await findOccupiedSiblings(port, probeDaemon);
+  const siblingNote = siblingListenerNote(port, occupiedSiblings);
+  if (siblingNote !== undefined) line(doctorRow(DoctorRow.SIBLING, siblingNote));
   // The check this checklist was missing: is the APP wired, not just the tools. Everything above can
   // be green in a project that has never been through `init`, and that combination is precisely the
   // one `doctor` gets run to explain.

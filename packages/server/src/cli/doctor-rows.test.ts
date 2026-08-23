@@ -89,10 +89,16 @@ describe('every row doctor can print is documented (#340)', () => {
   });
 
   it('covers the CONDITIONAL rows too, which are the ones a reader has never seen', () => {
-    // `version`, `port check` and `desktop` print only on skew, on a port mismatch, and on a
-    // desktop project. They are the rows least likely to be recognised and most likely to be
-    // missed by a guard built from one run's output — so they are named explicitly here.
-    for (const label of [DoctorRow.VERSION, DoctorRow.PORT_CHECK, DoctorRow.DESKTOP]) {
+    // `version`, `port check`, `sibling` and `desktop` print only on skew, on a port mismatch, on a
+    // sibling listener, and on a desktop project. They are the rows least likely to be recognised
+    // and most likely to be missed by a guard built from one run's output — so they are named
+    // explicitly here.
+    for (const label of [
+      DoctorRow.VERSION,
+      DoctorRow.PORT_CHECK,
+      DoctorRow.SIBLING,
+      DoctorRow.DESKTOP,
+    ]) {
       expect(table).toContain(`\`${label}\``);
     }
   });
