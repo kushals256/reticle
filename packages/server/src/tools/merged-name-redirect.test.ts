@@ -15,7 +15,10 @@
 import { describe, expect, it } from 'vitest';
 import { mergedNameRedirect } from './merged-name-redirect.js';
 import { ReticleTool } from './tool-names.js';
-import { TOOLS } from './tools.js';
+import { RETIRED_FROM_SURFACE, TOOLS } from './tools.js';
+import { BROWSER_TOOLS } from './browser-tools.js';
+import { PROJECT_TOOLS } from '../project/project-tools.js';
+import { LIVE_CONTROL_TOOLS } from '../session/live-control-tools.js';
 
 describe('an old member name points at where the capability went', () => {
   it.each([
@@ -55,5 +58,29 @@ describe('an old member name points at where the capability went', () => {
       10,
     );
     expect(dead.filter((n) => mergedNameRedirect(n) === undefined)).toEqual([]);
+  });
+});
+
+/**
+ * Retired from the advertised surface is not the same as still built. applyMerges drops the name
+ * from TOOLS, but the ToolDef was still constructed on every daemon boot and registered nowhere.
+ * `reticle_run` answers each with a redirect and does not need the def to exist.
+ */
+describe('a retired tool is a redirect, not a constructed ToolDef', () => {
+  it('does not build reticle_refresh, reticle_run_record, or reticle_wait_ready', () => {
+    const constructed = new Set(
+      [...BROWSER_TOOLS, ...PROJECT_TOOLS, ...LIVE_CONTROL_TOOLS].map((t) => t.name),
+    );
+    expect(RETIRED_FROM_SURFACE).toEqual([
+      ReticleTool.RUN_RECORD,
+      ReticleTool.REFRESH,
+      ReticleTool.WAIT_READY,
+    ]);
+    const stillBuilt = RETIRED_FROM_SURFACE.filter((name) => constructed.has(name));
+    expect(stillBuilt, stillBuilt.join(', ')).toEqual([]);
+    for (const name of RETIRED_FROM_SURFACE) {
+      expect(mergedNameRedirect(name), name).toBeDefined();
+      expect(mergedNameRedirect(name)?.action, name).toBeUndefined();
+    }
   });
 });

@@ -90,7 +90,7 @@ const PROFILE_GATED = new Set<string>([ReticleTool.RUN, ReticleTool.TOOLS]);
 const KNOWN_REMOVED = new Map<string, string>([
   [
     'reticle_run_record',
-    'RETIRED from the surface, not removed: tools.ts RETIRED_FROM_SURFACE records that flow_replay already auto-records run outcomes, so a manual append was redundant. The handler still exists and works; it is simply not advertised. An earlier note here claimed the capability was lost — it was not, and the claim came from reading a missing tool name without checking the retirement list.',
+    'RETIRED from the surface, not removed: tools.ts RETIRED_FROM_SURFACE records that flow_replay already auto-records run outcomes, so a manual append was redundant. The ToolDef is gone; reticle_run answers the old name with a redirect. An earlier note here claimed the capability was lost — it was not, and the claim came from reading a missing tool name without checking the retirement list.',
   ],
   [
     'reticle_affected',

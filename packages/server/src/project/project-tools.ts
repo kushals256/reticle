@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { ProjectReadError, RunKind, RunStatus, type RunRecord } from '@reticlehq/core';
+import { ProjectReadError, RunStatus, type RunRecord } from '@reticlehq/core';
 import { ReticleTool } from '../tools/tool-names.js';
 import { sessionIdShape } from '../tools/tool-kit.js';
 import { asNumber, asString } from '../tools/tools-helpers.js';
@@ -86,10 +86,9 @@ function lastTwoFor(runs: RunRecord[], name: string): [RunRecord, RunRecord] | u
 }
 
 /**
- * The cross-run memory tools. `reticle_project` reads .reticle/project.json (optionally
- * scoped to a name, with a diff-vs-last summary); `reticle_run_record` explicitly records an outcome
- * (the manual companion to the auto-record on reticle_flow_replay). Both keep the agent's "did this
- * behave like last run?" question answerable without re-deriving it from raw observations.
+ * The cross-run memory tool. `reticle_project` reads .reticle/project.json (optionally
+ * scoped to a name, with a diff-vs-last summary). Run outcomes are persisted automatically by
+ * reticle_flow_replay; the retired `reticle_run_record` ToolDef is a redirect, not a constructed handler.
  */
 
 /**
@@ -141,7 +140,7 @@ export const PROJECT_TOOLS: ToolDef[] = [
         return withCloud({
           error:
             read.reason === ProjectReadError.MISSING
-              ? 'no .reticle/project.json yet — run a flow (reticle_flow_replay) or reticle_run_record first'
+              ? 'no .reticle/project.json yet — run a flow (reticle_flow_replay) first'
               : '.reticle/project.json is malformed — it will self-heal on the next recorded run',
           reason: read.reason,
         });
@@ -181,36 +180,6 @@ export const PROJECT_TOOLS: ToolDef[] = [
         ...(pair !== undefined ? { diff: diffRuns(pair[0], pair[1]) } : {}),
         ...(runDiff === undefined ? {} : { runDiff }),
       });
-    },
-  },
-  {
-    name: ReticleTool.RUN_RECORD,
-    description:
-      'Explicitly record a run outcome into .reticle/project.json (the manual companion to the auto-record on reticle_flow_replay). Use it to log the result of an assertion sequence or a manual journey so future runs can diff against it. Returns { recorded:true, name, status }.',
-    inputSchema: {
-      name: z.string().describe('Run name for grouping in reticle_project history.'),
-      status: z.nativeEnum(RunStatus).describe('Outcome: pass | fail | drift | error'),
-      kind: z.nativeEnum(RunKind).optional(),
-      summary: z.string().optional().describe('One-line human summary of what this run covered.'),
-      ...sessionIdShape,
-    },
-    outputSchema: {
-      recorded: z.boolean(),
-      runName: z.string(),
-      status: z.string(),
-    },
-    handler: async (deps: ToolDeps, args) => {
-      const name = asString(args['name']) ?? '';
-      const status = args['status'] as RunStatus;
-      const kindArg = args['kind'];
-      const summary = asString(args['summary']);
-      await deps.project.recordRun({
-        kind: 'string' === typeof kindArg ? (kindArg as RunKind) : RunKind.MANUAL,
-        name,
-        status,
-        ...(summary !== undefined ? { summary } : {}),
-      });
-      return { recorded: true, runName: name, status };
     },
   },
 ];

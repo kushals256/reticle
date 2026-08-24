@@ -44,7 +44,7 @@ export const BUFFER_EVICTION_WARNING =
  * checks the wiring instead of only the "is the SDK enabled?" dead end.
  */
 export const NO_SESSION_CONNECTED_ERROR =
-  "no browser session connected. Two things to check: (1) your app is running with @reticlehq/browser enabled, and (2) it points at THIS daemon's port — a mismatch between the app's reticle({ port }) / VITE_RETICLE_WS_URL and the daemon's RETICLE_PORT is the usual cause. reticle_wait_ready blocks briefly for a session to appear.";
+  "no browser session connected. Two things to check: (1) your app is running with @reticlehq/browser enabled, and (2) it points at THIS daemon's port — a mismatch between the app's reticle({ port }) / VITE_RETICLE_WS_URL and the daemon's RETICLE_PORT is the usual cause. The first live call already blocks until a session appears.";
 
 /** Surfaced on act/assert results when the target tab is throttled. */
 export const THROTTLED_WARNING =

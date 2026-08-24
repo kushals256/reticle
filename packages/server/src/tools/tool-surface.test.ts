@@ -72,8 +72,8 @@ describe('tool profiles', () => {
    * surface, so an agent that did as it was told got `unknown tool` — and an agent that did not,
    * left the panel reading "live" forever.
    *
-   * The RETICLE_LOOP_GUIDE deliberately is NOT covered here: it names reticle_record/reticle_replay
-   * as optional next steps, which reticle_run reaches fine. Mandatory ≠ suggested.
+   * The old first-call loop guide named reticle_record/reticle_replay as optional next steps,
+   * which reticle_run reaches fine. Mandatory ≠ suggested.
    */
   it('4a: a tool an always-on instruction ORDERS the agent to call is advertised', () => {
     for (const block of [PAUSE_HINT, buildSessionLease('s1', 0).IMPORTANT]) {

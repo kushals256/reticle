@@ -96,25 +96,4 @@ export const BROWSER_TOOLS: ToolDef[] = [
       }
     },
   },
-  {
-    name: ReticleTool.REFRESH,
-    description:
-      'Reload the connected browser tab. Pass { hard: true } to bypass the browser cache (equivalent to Cmd+Shift+R). The SDK reconnects automatically after the reload.',
-    inputSchema: {
-      hard: z
-        .boolean()
-        .optional()
-        .describe('Set true to bypass the browser cache. Default: false (normal reload).'),
-      ...sessionIdShape,
-    },
-    outputSchema: {
-      ok: z.boolean(),
-    },
-    handler: async (deps, args) => {
-      await commandOrThrow(deps, asString(args['sessionId']), ReticleCommand.REFRESH, {
-        hard: true === args['hard'],
-      });
-      return { ok: true };
-    },
-  },
 ];

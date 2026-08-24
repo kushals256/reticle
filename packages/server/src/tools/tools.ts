@@ -532,7 +532,7 @@ const RAW_TOOLS: ToolDef[] = [
   ...DOMAIN_TOOLS,
   // reticle_flow_save / reticle_flow_list / reticle_flow_load. See flow-tools.ts.
   ...FLOW_TOOLS,
-  // reticle_project (read history + diff-vs-last) / reticle_run_record. See project-tools.ts.
+  // reticle_project (read history + diff-vs-last). See project-tools.ts.
   ...PROJECT_TOOLS,
   // reticle_run_export — export the verification-run verdict artifact (.reticle/runs/). See run-tools.ts.
   ...RUN_TOOLS,
@@ -557,7 +557,7 @@ const RAW_TOOLS: ToolDef[] = [
   ...VERIFY_CHANGE_TOOLS,
   // Live-control: reticle_end_session / reticle_resume / reticle_messages. See live-control-tools.ts.
   ...LIVE_CONTROL_TOOLS,
-  // reticle_navigate / reticle_refresh — browser navigation tools. See browser-tools.ts.
+  // reticle_navigate — browser navigation (reload is { reload: true }). See browser-tools.ts.
   ...BROWSER_TOOLS,
   ...ACT_TOOLS,
   ...OBSERVE_TOOLS,

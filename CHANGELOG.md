@@ -86,6 +86,10 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
   **A flow with no declared intent says so, and nothing is derived from its step names.** A guessed goal reads as the product owner's words and an agent will act on them, which is strictly worse than the honest absence — the same rule the source pointer follows. Older flow files parse, replay, and report exactly as they did, and the on-disk flow version does not move.
 
+### Changed
+
+- **`@reticlehq/server` — three retired tools are no longer constructed on every daemon boot.** `reticle_refresh`, `reticle_run_record` and `reticle_wait_ready` were already off the advertised surface. Their handlers, schemas and description prose were still built and registered nowhere. `reticle_run` already answers each name with a redirect and does not need the `ToolDef` to exist. A lock over the three source arrays fails if one of those names is built again.
+
 ### Fixed
 
 - **`@reticlehq/server` — a `reticle_assert` verdict reported a `file:line` that could point at completely unrelated code.** An assertion drives nothing, so the tool had no location of its own and used the one the PREVIOUS action remembered. Driven against a real Next.js app: an assert about the site navigation was journaled with the file and line of the button an earlier click had touched, and an assert that matched nothing on the page at all was journaled with that same line. The old value was, in both cases, a location this verdict had never looked at — it sent the agent to innocent code, and because it is persisted into the session journal and read back by `reticle_context`'s `proven`, the wrong pointer outlived the turn that produced it.

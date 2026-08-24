@@ -1,7 +1,7 @@
 /**
  * First-run readiness: the agent often issues its first tool call in the window between `reticle init`
  * and the app's SDK actually connecting its WebSocket — so a naive resolve throws "no session". This
- * lets the agent (via reticle_wait_ready) BLOCK briefly until a session appears instead of failing the
+ * lets the first live call BLOCK briefly until a session appears instead of failing the
  * race, smoothing the most common first-5-minutes footgun.
  *
  * Pure control loop: the session count, clock, and sleep are all injected, so it is unit-tested with
@@ -26,20 +26,6 @@ interface WaitForReadyOptions {
  * makes. Four times the checks of something with no I/O costs nothing measurable.
  */
 const DEFAULT_POLL_MS = 25;
-
-/**
- * One-line orientation for a FRESH agent — the Reticle loop, returned by reticle_wait_ready (the first call)
- * so an agent learns how to drive Reticle without reading docs. Named so it is not a free string; kept
- * terse on purpose (it rides the first response, where token budget is tightest).
- */
-export const RETICLE_LOOP_GUIDE =
-  'Reticle loop — LOOK: reticle_snapshot / reticle_query / reticle_inspect · ACT: reticle_act (or reticle_act_and_wait) · ' +
-  'OBSERVE: reticle_observe / reticle_wait_for / reticle_network / reticle_console · ASSERT: reticle_assert over program ' +
-  'truth, not just the DOM · REGRESS: reticle_record{action:"start"} → reticle_replay, or reticle_verify{action:"flows"} for the whole ' +
-  'suite. The human can flag bugs from the panel — drain them with reticle_session{action:"review"} and resolve each once fixed. ' +
-  'MANDATORY: the moment you stop driving — finishing your reply or waiting on the human — call reticle_session {action:"yield"} ' +
-  '(mode:"waiting", or mode:"ask" with the question) so the panel shows your real state; reticle_session{action:"end"} ' +
-  'only when the whole task is done. Never leave the panel reading "live" when you have actually stopped.';
 
 /**
  * Resolve `true` as soon as at least one session is connected, or `false` if the timeout elapses

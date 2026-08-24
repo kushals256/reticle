@@ -20,7 +20,7 @@ import { join } from 'node:path';
 import { Bridge } from './bridge/bridge.js';
 import { FakeBrowser, callTool, makeDeps, waitUntil } from './bridge/bridge.test-harness.js';
 import { ReticleTool } from './tools/tool-names.js';
-import { LIVE_CONTROL_TOOLS } from './session/live-control-tools.js';
+import { waitForReady } from './session/session-readiness.js';
 import type { ToolDeps } from './tools/tools.js';
 import { EventType, RETICLE_DEFAULT_PORT } from '@reticlehq/core';
 
@@ -105,18 +105,17 @@ describe('daemon without app', () => {
     await bridge.close();
   });
 
-  it('reticle_wait_ready resolves immediately when no session (no hang)', async () => {
+  it('waitForReady resolves immediately when no session (no hang)', async () => {
     const { bridge, deps } = await startBridge();
     // timeoutMs:0 means "check once and return" — the injected now=>0 clock means the loop
-    // exits immediately on the first iteration (0 - 0 >= 0 → true → return count>0 → false).
-    // wait_ready is server-internal now — its handler still exists and is exercised here.
-    const waitReady = LIVE_CONTROL_TOOLS.find((x) => x.name === ReticleTool.WAIT_READY);
-    const result = (await waitReady?.handler(deps, { timeoutMs: 0 })) as {
-      ready: boolean;
-      sessionCount: number;
-    };
-    expect(result.ready).toBe(false);
-    expect(result.sessionCount).toBe(0);
+    // exits immediately on the first iteration.
+    const ready = await waitForReady({
+      count: () => deps.sessions.count(),
+      timeoutMs: 0,
+      now: () => 0,
+      sleep: () => Promise.resolve(),
+    });
+    expect(ready).toBe(false);
     await bridge.close();
   });
 
