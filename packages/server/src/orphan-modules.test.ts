@@ -41,6 +41,10 @@ const DECLARED_UNWIRED: Record<string, string> = {
   'ee/audit-log.ts':
     'Enterprise audit hook, a self-admitted pass-through stub. Nothing calls it; the license gate that ' +
     'would is real, but this consumer is not implemented.',
+  'session/session-readiness.ts':
+    'The wait-until-session loop that reticle_wait_ready used to expose. That ToolDef is gone ' +
+    '(redirect: waiting is implicit). The helper is still unit-tested; wiring it into the first ' +
+    'live call is a different change than deleting a dead ToolDef.',
 };
 
 /** Source files, excluding tests, type-only barrels and the entry points everything hangs off. */
