@@ -38,14 +38,24 @@ pub const FULL_PAGE_UNSUPPORTED: &str = "full-page-unsupported";
 /// Environment variable that asks for a window nobody can see.
 const HEADLESS_ENV: &str = "RETICLE_HEADLESS";
 
-/// Hide the window once its page has loaded, when `RETICLE_HEADLESS=1`.
+/// Far enough off every display that nothing is on screen, without calling `hide()`.
+///
+/// A hidden WKWebView on macOS stops executing JavaScript after a short pause. Capture still works
+/// (it renders the webview, not the screen). Parking keeps `document.hidden` false so the page
+/// keeps answering.
+#[cfg(target_os = "macos")]
+const OFFSCREEN_PX: i32 = -32_000;
+
+/// Park the window once its page has loaded, when `RETICLE_HEADLESS=1`.
 ///
 /// The ordering is the entire trick, and getting it backwards is what made headless Tauri look
-/// impossible: hiding the window during `setup` hides it BEFORE the webview has ever been presented,
-/// and a webview that has never been presented never loads its page — so every command times out and
-/// the app looks suspended. A webview that HAS loaded keeps running JavaScript through every state
-/// that gets blamed for this: minimized, app-hidden, fully occluded, and on another macOS Space
-/// behind a fullscreen app. So: show, load, then hide. Nothing is on screen afterwards.
+/// impossible: acting during `setup` runs BEFORE the webview has ever been presented, and a
+/// webview that has never been presented never loads its page — so every command times out and
+/// the app looks dead. Show, load, then park.
+///
+/// On macOS the park is off-screen, not `hide()`. A loaded WKWebView that is hidden stops answering
+/// commands after a short pause even though capture still works. Linux and Windows still `hide()`:
+/// WebKitGTK keeps executing while hidden, which is why the Linux desktop battery stays green.
 ///
 /// Screenshots keep working, because `reticle_capture` renders the webview rather than the screen.
 pub fn on_page_load<R: Runtime>(
@@ -58,5 +68,14 @@ pub fn on_page_load<R: Runtime>(
     if std::env::var(HEADLESS_ENV).as_deref() != Ok("1") {
         return;
     }
-    let _ = webview.window().hide();
+    #[cfg(target_os = "macos")]
+    {
+        let window = webview.window();
+        let _ = window.set_position(tauri::PhysicalPosition::new(OFFSCREEN_PX, OFFSCREEN_PX));
+        return;
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = webview.window().hide();
+    }
 }

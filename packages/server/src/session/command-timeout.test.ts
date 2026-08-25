@@ -100,6 +100,21 @@ describe('commandTimeoutMessage — an 8s timeout should say what to DO', () => 
   });
 
   /**
+   * Hiding AFTER load used to be documented as safe. On macOS it is not: a loaded WKWebView that
+   * stays hidden stops answering commands after a short pause, even though capture still works.
+   * The timeout must not send someone back to hide() as the fix.
+   */
+  it('does not claim that hiding after load is safe', () => {
+    const message = commandTimeoutMessage('snapshot', 8000, {
+      url: TAURI,
+      hidden: true,
+      runtime: 'tauri',
+    });
+    expect(message).not.toMatch(/hiding it is safe/i);
+    expect(message).toMatch(/off-screen/);
+  });
+
+  /**
    * Electron shows its window before hiding it, so it never hits this. Diagnosing it there would
    * send the user to change code that was never the problem.
    */

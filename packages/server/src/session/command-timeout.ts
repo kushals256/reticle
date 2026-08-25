@@ -10,8 +10,9 @@ import { AppRuntime, isOpaqueOrigin } from '@reticlehq/core';
  * developer goes hunting through their own code for a fault that is not there.
  *
  * This advice previously blamed occlusion — "macOS suspends an occluded or off-Space WKWebView" —
- * which is false, and was the kind of wrong steer this function exists to prevent. A LOADED Tauri
- * webview keeps answering while minimized, app-hidden, occluded, and on another Space.
+ * which is false for those states, and was the kind of wrong steer this function exists to prevent.
+ * A LOADED Tauri webview keeps answering while minimized, occluded, and on another Space. What it
+ * does not survive is `hide()`: on macOS a hidden WKWebView stops answering after a short pause.
  *
  * It then over-corrected: it asserted the hidden-before-load ordering as FACT. But the only evidence
  * here is `hidden === true` — the ordering is never observed. Measured on a Tauri shell pointed at an
@@ -59,11 +60,12 @@ const ONE_WAY_ADVICE =
 const HIDDEN_ADVICE =
   'The page last reported itself hidden, and this is a WKWebView (Tauri) window, so the webview is ' +
   'most likely not running the page at all. Two known causes, commonest first: (1) the window was ' +
-  'hidden BEFORE its first page load — a webview that has never been presented never loads, so hide ' +
+  'hidden BEFORE its first page load — a webview that has never been presented never loads, so park ' +
   'it from `on_page_load` instead of `setup` (see `reticle_tauri::on_page_load`, which does this for ' +
-  'RETICLE_HEADLESS=1); once the page HAS loaded, hiding it is safe. (2) the window never presented ' +
-  'for another reason — check that it is declared with a visible size and that the page URL actually ' +
-  'loaded. If neither fits, the page is reachable but not executing, which is worth reporting.';
+  'RETICLE_HEADLESS=1). (2) the window was hidden after load and then went quiet — a loaded macOS ' +
+  'WKWebView stops answering commands after a short pause even though capture still works; park it ' +
+  'off-screen rather than calling hide. If neither fits, the page is reachable but not executing, ' +
+  'which is worth reporting.';
 
 /** True when this session is a WebKit desktop shell — the only runtime that suffers this. */
 function isWebKitDesktop(context: TimeoutContext): boolean {
