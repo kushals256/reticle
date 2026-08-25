@@ -72,7 +72,6 @@ pub fn on_page_load<R: Runtime>(
     {
         let window = webview.window();
         let _ = window.set_position(tauri::PhysicalPosition::new(OFFSCREEN_PX, OFFSCREEN_PX));
-        return;
     }
     #[cfg(not(target_os = "macos"))]
     {
