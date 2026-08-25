@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { CDP_NO_PROVIDER_REASON, CDP_NO_PROVIDER_RECOMMENDATION } from '@reticlehq/core';
 import { ReticleTool } from '../tools/tool-names.js';
 import { sessionIdShape } from '../tools/tool-kit.js';
+import { delayMsSchema, httpStatusSchema } from '../tools/numeric-bounds.js';
 import { asString } from '../tools/tools-helpers.js';
 import type { RealInputProvider } from './real-input.js';
 import type { MockRule } from './network-mock.js';
@@ -23,14 +24,10 @@ const ruleShape = z.object({
     .min(1)
     .describe('Substring the request URL must contain, e.g. "/api/pay".'),
   method: z.string().optional().describe('Optional method filter (GET/POST/…), case-insensitive.'),
-  status: z.number().int().optional().describe('Fulfill with this HTTP status (default 200).'),
+  status: httpStatusSchema.optional().describe('Fulfill with this HTTP status (default 200).'),
   body: z.string().optional().describe('Response body to fulfill with.'),
   contentType: z.string().optional().describe('Response content type (default application/json).'),
-  delayMs: z
-    .number()
-    .int()
-    .optional()
-    .describe('Delay (ms) before fulfilling — simulate a slow API.'),
+  delayMs: delayMsSchema.optional().describe('Delay (ms) before fulfilling — simulate a slow API.'),
   abort: z
     .boolean()
     .optional()

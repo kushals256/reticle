@@ -4,6 +4,7 @@ import { ReticleTool } from './tool-names.js';
 import { withSizeCost } from '../session/output-budget.js';
 import { applySnapshotDelta, SnapshotCache } from './snapshot-delta.js';
 import { asString, asNumber } from './tools-helpers.js';
+import { countSchema } from './numeric-bounds.js';
 import { normalizeQueryArgs } from './query-shape.js';
 import { paginateQueryResult } from './query-paginate.js';
 
@@ -52,7 +53,8 @@ export type { ToolDef, ToolDeps } from './tool-kit.js';
 /** Per-server last-snapshot cache backing reticle_snapshot's diff:true delta mode (route-invalidated). */
 const SNAPSHOT_CACHE = new SnapshotCache();
 
-const RAW_TOOLS: ToolDef[] = [
+/** Every handler, including tools retired from the advertised MCP surface. */
+export const RAW_TOOLS: ToolDef[] = [
   {
     name: ReticleTool.SESSIONS,
     description:
@@ -310,9 +312,7 @@ const RAW_TOOLS: ToolDef[] = [
         .describe(
           "Attribute names to return per match, e.g. ['href'] to inventory links or ['src'] for images. Absent attributes are omitted; credential-bearing names are redacted.",
         ),
-      limit: z
-        .number()
-        .nonnegative()
+      limit: countSchema
         .optional()
         .describe(
           'Cap the returned descriptors to the first N (cuts tokens on broad queries). If more matched, the result carries total + truncated:true so the trim is never silent — narrow with name/scope.',

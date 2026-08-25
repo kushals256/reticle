@@ -12,6 +12,7 @@ import {
   StorageArea,
 } from '@reticlehq/core';
 import { ReticleTool } from './tool-names.js';
+import { advanceMsSchema, depthSchema } from './numeric-bounds.js';
 import { proposeConsequences } from '../oracles/propose-consequences.js';
 import type { CompiledProgram } from '../flows/recordings.js';
 import { replayProgram } from '../flows/replay.js';
@@ -323,8 +324,7 @@ export const READ_TOOLS: ToolDef[] = [
         .boolean()
         .optional()
         .describe('Freeze the fake clock. Time stops advancing until advanceMs or reset.'),
-      advanceMs: z
-        .number()
+      advanceMs: advanceMsSchema
         .optional()
         .describe(
           'Fast-forward time by this many milliseconds — triggers debounces, toasts, auto-dismiss timers.',
@@ -367,10 +367,7 @@ export const READ_TOOLS: ToolDef[] = [
         .describe(
           "Dot-path into the store (e.g. 'captionCache.v3'). Numeric array indices are supported.",
         ),
-      depth: z
-        .number()
-        .int()
-        .positive()
+      depth: depthSchema
         .optional()
         .describe(
           'Collapse anything deeper than N levels to a size marker — avoids huge outputs for large stores. A whole number of levels, 1 or more.',

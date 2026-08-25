@@ -8,6 +8,7 @@ import { resolveTargetRef, type TargetResolution } from './resolve-target.js';
  */
 import { z } from 'zod';
 import { aliasParam } from './alias-args.js';
+import { timeoutMsSchema } from './numeric-bounds.js';
 import { captureAct, compileSequenceStep } from '../flows/replay.js';
 import {
   ActionType,
@@ -343,8 +344,7 @@ export const ACT_TOOLS: ToolDef[] = [
         .describe(
           'Ordered list of { ref, action, args? } objects. Each step is equivalent to one reticle_act call; put confirmDangerous:true in a destructive step args object.',
         ),
-      timeout_ms: z
-        .number()
+      timeout_ms: timeoutMsSchema
         .optional()
         .describe(
           'Per-step timeout in milliseconds. Default: 8000. Each step gets this budget independently.',
@@ -488,8 +488,7 @@ export const ACT_TOOLS: ToolDef[] = [
       until: PredicateSchema.optional().describe(
         'Predicate to wait for after the action completes (same shape as reticle_assert). OMIT to wait for the page to SETTLE — network + DOM idle — the deterministic default instead of a sleep. To assert a consequence AND settle, allOf them: { kind: "allOf", predicates: [<your predicate>, { kind: "settled" }] }.',
       ),
-      timeout_ms: z
-        .number()
+      timeout_ms: timeoutMsSchema
         .optional()
         .describe(
           'Maximum wait time in milliseconds. 0 = evaluate once without waiting. Default: 4000.',

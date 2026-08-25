@@ -1,0 +1,120 @@
+/**
+ * Shared bounds for numeric TOOL INPUTS.
+ *
+ * An unknown parameter is refused with "They were NOT applied — a result computed without them
+ * would look like an answer." A known parameter carrying a value the code cannot honour is the
+ * same failure: `reticle_state { depth: -5 }` used to return the full unscoped store, because
+ * `capDepth` treats a negative budget as "no cap". The agent cannot tell a bound it asked for
+ * from a bound that was dropped.
+ *
+ * A single rule for every number would be wrong (`since: 0` is a real cursor; `timeout_ms: 0`
+ * on assert means evaluate now; `threshold` is a 0–1 ratio). Each helper below is one policy,
+ * with the sentence for why that bound and not another.
+ */
+import { z } from 'zod';
+import { RING_BUFFER_DEFAULTS, TRANSPORT_LIMITS } from '@reticlehq/core';
+
+/**
+ * Hard cap on "return the first N". The ring buffer holds this many events; asking for a billion
+ * cannot be honoured from memory we do not keep, and would look like a complete listing.
+ */
+export const MAX_RESULT_COUNT = RING_BUFFER_DEFAULTS.MAX_EVENTS;
+
+/**
+ * Hard cap on a wait. The default assert budget is 4s; two minutes is already a hung session.
+ * `timeout_ms: 0` stays legal — it means evaluate once, do not wait.
+ */
+export const MAX_TIMEOUT_MS = 120_000;
+
+/**
+ * Upper bound on an explicit `depth`. A large depth is a scope choice (the existing gate keeps
+ * 50), not an error; a billion-level claim is not a store, it is a hang.
+ */
+export const MAX_STATE_DEPTH = 256;
+
+/** A crawl that clicks forever is not a bound. */
+export const MAX_CRAWL_STEPS = 500;
+
+/** Scroll-to-find steps. Default is 20; hundreds is searching, thousands is a hang. */
+export const MAX_SCROLLS = 200;
+
+/** Fake-clock jump. One day of timers is a test; a billion ms is not. */
+export const MAX_ADVANCE_MS = 86_400_000;
+
+/** Presenter idle window. One hour is a slow app; larger values never fire. */
+export const MAX_IDLE_MS = 3_600_000;
+
+/** Viewport CSS px — matches the clamp the handler already applied, now as a refusal. */
+export const MIN_VIEWPORT_PX = 64;
+export const MAX_VIEWPORT_PX = 10_000;
+
+/**
+ * A page cursor. 0 is the start of the buffer, so `.positive()` would refuse a legitimate first
+ * page. Negative is not a cursor.
+ */
+export const cursorSchema = z.number().finite().int().nonnegative();
+
+/**
+ * A wait budget in ms. 0 means evaluate now (documented on assert). Negative cannot be honoured.
+ */
+export const timeoutMsSchema = z.number().finite().int().nonnegative().max(MAX_TIMEOUT_MS);
+
+/**
+ * A count / cap. 0 means "return none", which is a real request. Negative is not.
+ * Capped at the ring-buffer size so a `limit: 1e9` cannot pretend the buffer is larger than it is.
+ */
+export const countSchema = z.number().finite().int().nonnegative().max(MAX_RESULT_COUNT);
+
+/**
+ * Store projection depth. 0 is refused: a zero-level read is not a read. Negative used to mean
+ * "no cap" inside `capDepth`, which is how `depth: -5` silently returned the full store.
+ */
+export const depthSchema = z.number().finite().int().positive().max(MAX_STATE_DEPTH);
+
+/**
+ * Pixel-diff ratios (`threshold`, `maxRatio`). pixelmatch's threshold and our pass ratio are both
+ * 0..1; `.int()` would refuse 0.01.
+ */
+export const ratioSchema = z.number().finite().min(0).max(1);
+
+/** HTTP status on a mock or a filter. */
+export const httpStatusSchema = z.number().finite().int().min(100).max(599);
+
+/** Viewport CSS px. `.int()` alone still accepted 5 and 999999, then the handler silently clamped. */
+export const viewportPxSchema = z.number().finite().int().min(MIN_VIEWPORT_PX).max(MAX_VIEWPORT_PX);
+
+/** Crawl / scroll step budgets. 0 is a documented no-op on crawl ("raise it to crawl at all"). */
+export const stepCountSchema = z.number().finite().int().nonnegative().max(MAX_CRAWL_STEPS);
+
+export const scrollCountSchema = z.number().finite().int().nonnegative().max(MAX_SCROLLS);
+
+export const advanceMsSchema = z.number().finite().int().nonnegative().max(MAX_ADVANCE_MS);
+
+export const idleMsSchema = z.number().finite().int().nonnegative().max(MAX_IDLE_MS);
+
+/** Delay before a mocked response. 0 is immediate. */
+export const delayMsSchema = z.number().finite().int().nonnegative().max(MAX_TIMEOUT_MS);
+
+/**
+ * Observe lookback. Must be > 0 — a non-positive window used to mint a FUTURE cursor, so the
+ * tool returned zero events and looked like a quiet page. Capped so `window_ms: 1e12` cannot hang.
+ */
+export const windowMsSchema = z.number().finite().int().positive().max(MAX_TIMEOUT_MS);
+
+/**
+ * Parallelism for suite replay. 0 (and omit) means sequential. Capped at the session/pool ceiling;
+ * asking for a thousand workers cannot be honoured.
+ */
+export const workerCountSchema = z
+  .number()
+  .finite()
+  .int()
+  .nonnegative()
+  .max(TRANSPORT_LIMITS.MAX_SESSIONS);
+
+/**
+ * A row index / list length in a virtualized table. Those lists are large on purpose; the ring
+ * buffer's 2000 is the wrong ceiling. A billion-row claim is not a list, it is a hang.
+ */
+export const MAX_LIST_INDEX = 1_000_000;
+export const listIndexSchema = z.number().finite().int().nonnegative().max(MAX_LIST_INDEX);

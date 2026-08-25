@@ -11,6 +11,7 @@ import type { FlowFile } from '@reticlehq/core';
 import { recordSuiteFlakes } from './suite-flakes.js';
 import { ReticleTool } from '../tools/tool-names.js';
 import { asNumber, asString } from '../tools/tools-helpers.js';
+import { workerCountSchema } from '../tools/numeric-bounds.js';
 import { log } from '../log.js';
 import { cloudFetch, syncFlowToCloud, SyncOutcome } from '../cloud/cloud-sync.js';
 import { mapWithConcurrency, resolveConcurrency } from './parallel-suite.js';
@@ -413,8 +414,7 @@ export const FLOW_TOOLS: ToolDef[] = [
         .array(z.string())
         .optional()
         .describe('Flow names to verify. Omit to verify every saved flow.'),
-      parallel: z
-        .number()
+      parallel: workerCountSchema
         .optional()
         .describe(
           'Run this many flows at once, each in its own isolated leased browser context (needs the browser pool). Clamped to the pool capacity and the flow count. Omit for the sequential single-tab run.',

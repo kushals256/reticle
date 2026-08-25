@@ -13,6 +13,13 @@ import {
   Verified,
 } from '@reticlehq/core';
 import { ReticleTool } from './tool-names.js';
+import {
+  countSchema,
+  cursorSchema,
+  httpStatusSchema,
+  timeoutMsSchema,
+  windowMsSchema,
+} from './numeric-bounds.js';
 import { buildReactionReport } from '../events/reaction.js';
 import { findContradictions } from '../events/contradictions.js';
 import { evaluatePredicate, waitForPredicate, PredicateSchema } from '../events/predicate.js';
@@ -130,9 +137,7 @@ export const OBSERVE_TOOLS: ToolDef[] = [
     description:
       'Return the timeline of everything the app did in a window (DOM/network/route/console/animation/signal), with a summary. Use after an action. Pass `max_events` to cap the timeline to the most recent N (older events are dropped and counted in cost.droppedOldest). Every result carries a `cost:{events,bytes}` hint so you can self-budget your next call.',
     inputSchema: {
-      window_ms: z
-        .number()
-        .positive()
+      window_ms: windowMsSchema
         // A non-positive window silently produced a FUTURE cursor, so the tool returned zero events
         // and echoed the nonsense value back — indistinguishable from a genuinely quiet page. An
         // agent that fumbles this argument gets a clean "nothing happened" instead of being told the
@@ -141,14 +146,12 @@ export const OBSERVE_TOOLS: ToolDef[] = [
         .describe(
           'Time window to look back, in ms (must be > 0). Default: 2000. Ignored when `since` is provided.',
         ),
-      since: z
-        .number()
+      since: cursorSchema
         .optional()
         .describe(
           'Cursor from a prior reticle_act or reticle_observe call. Scopes the event window to exactly that span.',
         ),
-      until: z
-        .number()
+      until: cursorSchema
         .optional()
         .describe('Upper cursor bound. With `since`, returns the span "between action A and B".'),
       actionId: z
@@ -165,9 +168,7 @@ export const OBSERVE_TOOLS: ToolDef[] = [
             'dom | net | route | console | animation | signal | perf | state | storage — or a raw ' +
             'type (e.g. "net.request"). Omit to return all types.',
         ),
-      max_events: z
-        .number()
-        .nonnegative()
+      max_events: countSchema
         .optional()
         .describe(
           'Cap the timeline to the most recent N events. Older events are counted in cost.droppedOldest.',
@@ -278,9 +279,10 @@ export const OBSERVE_TOOLS: ToolDef[] = [
       ),
       // Same concept, the neighbouring tool's name. See alias-args.ts.
       until: PredicateSchema.optional().describe("Alias for `predicate` (act_and_wait's name)."),
-      timeout_ms: z.number().optional().describe('Maximum wait in milliseconds. Default: 4000.'),
-      since: z
-        .number()
+      timeout_ms: timeoutMsSchema
+        .optional()
+        .describe('Maximum wait in milliseconds. Default: 4000.'),
+      since: cursorSchema
         .optional()
         .describe('Cursor from a prior reticle_act — scopes the wait to events after that act.'),
       ...sessionIdShape,
@@ -368,14 +370,12 @@ export const OBSERVE_TOOLS: ToolDef[] = [
           'over element/text presence.',
       ),
       until: PredicateSchema.optional().describe("Alias for `predicate` (act_and_wait's name)."),
-      timeout_ms: z
-        .number()
+      timeout_ms: timeoutMsSchema
         .optional()
         .describe(
           'If > 0, wait up to this many milliseconds before failing. Default: 0 (evaluate once).',
         ),
-      since: z
-        .number()
+      since: cursorSchema
         .optional()
         .describe(
           'Cursor from a prior reticle_act — scopes the assertion to events after that act.',
@@ -525,14 +525,12 @@ export const OBSERVE_TOOLS: ToolDef[] = [
     description:
       'Filtered list of network calls. Fast path for "did POST /x return 200?". A zero-match filter returns a `hint` { totalInWindow, present[] } of the calls that DID fire, so a miss is diagnosable. Desktop IPC (`ipc://`) has no status code — the 200/500 there is derived, so filter on `ok` for those.',
     inputSchema: {
-      since: z
-        .number()
+      since: cursorSchema
         .optional()
         .describe(
           'Cursor from a prior reticle_act — scopes the query to requests fired after that act.',
         ),
-      until: z
-        .number()
+      until: cursorSchema
         .optional()
         .describe('Upper cursor bound — with `since`, the span between two acts.'),
       actionId: z
@@ -544,16 +542,14 @@ export const OBSERVE_TOOLS: ToolDef[] = [
         .optional()
         .describe('HTTP method filter: GET | POST | PUT | DELETE | PATCH etc.'),
       urlContains: z.string().optional().describe('Substring that the request URL must contain.'),
-      status: z.number().optional().describe('HTTP status code filter (e.g. 200, 404, 500).'),
+      status: httpStatusSchema.optional().describe('HTTP status code filter (e.g. 200, 404, 500).'),
       ok: z
         .boolean()
         .optional()
         .describe(
           'Outcome filter: false keeps only calls that FAILED, true only those that succeeded. The filter to use for desktop IPC (`ipc://`), whose status code is derived. A still-pending call matches neither.',
         ),
-      limit: z
-        .number()
-        .nonnegative()
+      limit: countSchema
         .optional()
         .describe(
           'Keep only the most recent N matching calls (older are dropped and counted in droppedOldest) — cuts tokens on a wide window. Defaults to 200 when omitted; pass a higher number for more, or scope with since/until.',
@@ -639,23 +635,19 @@ export const OBSERVE_TOOLS: ToolDef[] = [
       level: consoleLevelEnum
         .optional()
         .describe(`Log level filter: ${CONSOLE_LEVEL_LIST}. Omit to return all levels.`),
-      since: z
-        .number()
+      since: cursorSchema
         .optional()
         .describe(
           'Cursor from a prior reticle_act — scopes the query to log entries after that act.',
         ),
-      until: z
-        .number()
+      until: cursorSchema
         .optional()
         .describe('Upper cursor bound — with `since`, the span between two acts.'),
       actionId: z
         .string()
         .optional()
         .describe('Keep only log entries attributed to this action — "what did action N log".'),
-      limit: z
-        .number()
-        .nonnegative()
+      limit: countSchema
         .optional()
         .describe(
           'Keep only the most recent N matching entries (older are dropped and counted in droppedOldest) — cuts tokens when a page spams the console. Defaults to 200 when omitted; pass a higher number for more, or scope with since/until.',

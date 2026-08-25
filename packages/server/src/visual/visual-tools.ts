@@ -7,6 +7,7 @@ import {
 } from '@reticlehq/core';
 import { ReticleTool } from '../tools/tool-names.js';
 import { sessionIdShape } from '../tools/tool-kit.js';
+import { ratioSchema } from '../tools/numeric-bounds.js';
 import { asNumber, asRecord, asString } from '../tools/tools-helpers.js';
 import { diffPng, type VisualRect } from './visual-diff.js';
 import { VisualStore } from './visual-store.js';
@@ -264,8 +265,10 @@ export const VISUAL_TOOLS: ToolDef[] = [
       ref: z.string().optional(),
       clip: rectShape.optional(),
       masks: z.array(rectShape).optional(),
-      maxRatio: z.number().optional(),
-      threshold: z.number().optional().describe('Pixel difference threshold (0–1). Default: 0.01.'),
+      maxRatio: ratioSchema.optional(),
+      threshold: ratioSchema
+        .optional()
+        .describe('Pixel difference threshold (0–1). Default: 0.01.'),
       ...sessionIdShape,
     },
     outputSchema: {

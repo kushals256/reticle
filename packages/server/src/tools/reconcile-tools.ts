@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { EventType, ReticleCommand, SnapshotMode } from '@reticlehq/core';
 import { ReticleTool } from './tool-names.js';
+import { cursorSchema } from './numeric-bounds.js';
 import { reconcile, type Mismatch } from '../events/reconcile.js';
 import { salvageJson } from '../events/json-salvage.js';
 import { withControl } from '../session/control-envelope.js';
@@ -61,8 +62,7 @@ export const RECONCILE_TOOLS: ToolDef[] = [
       'Compare what the API returned against what the page RENDERS. Catches the class no status code and no assertion can: a USD amount shown with a ₹ sign, a record the API calls `on_hold` displayed as "pending". Needs response bodies — enable `captureNetworkBodies` — and says so when they are missing rather than reporting a clean result over data it never read.',
     inputSchema: {
       ...sessionIdShape,
-      since: z
-        .number()
+      since: cursorSchema
         .optional()
         .describe('Cursor from a prior act — scopes to responses received after it. Default: 0.'),
       urlContains: z
