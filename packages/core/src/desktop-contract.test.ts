@@ -99,8 +99,9 @@ describe('desktop contract — the Rust capture helper', () => {
   });
 
   /**
-   * `hide()` after load used to be the headless path on every OS. On macOS a hidden WKWebView
-   * stops answering commands after a short pause. The macOS arm parks off-screen instead.
+   * `hide()` after load used to be the headless path on every OS. A hidden macOS WKWebView has
+   * been observed to go quiet after a pause; the macOS arm parks off-screen instead of asserting
+   * that `hide()` is dead on every machine.
    */
   it('parks the macOS headless window off-screen rather than calling hide()', () => {
     const lib = join(process.cwd(), '..', 'tauri', 'src', 'lib.rs');

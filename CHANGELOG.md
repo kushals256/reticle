@@ -6,7 +6,7 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
 ### Fixed
 
-- **`reticle-tauri` — a hidden macOS WKWebView no longer goes silent after a pause.** `RETICLE_HEADLESS=1` used to `hide()` the window after first paint. Capture still worked (it renders the webview, not the screen), but commands that need the page to execute JavaScript timed out after roughly twelve seconds. Linux was fine: WebKitGTK keeps running while hidden, which is why CI stayed green. macOS now parks the window off-screen instead of hiding it. The timeout copy no longer says hiding after load is safe.
+- **`reticle-tauri` — macOS `RETICLE_HEADLESS=1` parks off-screen instead of `hide()`.** Hiding after first paint is the remaining headless path we have not proved safe on every macOS WKWebView: a hidden window has been observed to go quiet after a pause while capture still works (it renders the webview, not the screen). Linux and Windows still hide. The timeout copy names that pause as a candidate, not a fact.
 
 ## [2.12.0] - 2026-08-24
 

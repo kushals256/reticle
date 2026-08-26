@@ -47,6 +47,6 @@ RETICLE_HEADLESS=1 cargo tauri dev
 
 The ordering matters and is the whole reason this is a function rather than a config flag. Acting during `setup` runs _before_ the webview has been presented, and a webview that has never been presented never loads its page — so the app answers nothing. Show, load, then park.
 
-On macOS the park is off-screen, not `hide()`. A loaded WKWebView that stays hidden stops answering commands after a short pause (capture still works, because it renders the webview). Linux and Windows still hide: WebKitGTK keeps executing while hidden.
+On macOS the park is off-screen, not `hide()`. A loaded WKWebView that is then hidden has been observed to go quiet after a pause (capture still works, because it renders the webview); parking keeps the page scheduled without claiming every Mac will hit that pause. Linux and Windows still hide: WebKitGTK keeps executing while hidden.
 
 `xvfb-run -a cargo tauri dev` also works on Linux and needs no app-side change.

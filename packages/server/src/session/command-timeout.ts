@@ -11,8 +11,10 @@ import { AppRuntime, isOpaqueOrigin } from '@reticlehq/core';
  *
  * This advice previously blamed occlusion — "macOS suspends an occluded or off-Space WKWebView" —
  * which is false for those states, and was the kind of wrong steer this function exists to prevent.
- * A LOADED Tauri webview keeps answering while minimized, occluded, and on another Space. What it
- * does not survive is `hide()`: on macOS a hidden WKWebView stops answering after a short pause.
+ * A LOADED Tauri webview keeps answering while minimized, occluded, and on another Space. `hide()`
+ * after load is the remaining headless path: a hidden macOS WKWebView has been observed to go quiet
+ * after a pause, but that is not something every machine demonstrates, so this message names it as
+ * a candidate rather than a fact.
  *
  * It then over-corrected: it asserted the hidden-before-load ordering as FACT. But the only evidence
  * here is `hidden === true` — the ordering is never observed. Measured on a Tauri shell pointed at an
@@ -62,8 +64,8 @@ const HIDDEN_ADVICE =
   'most likely not running the page at all. Two known causes, commonest first: (1) the window was ' +
   'hidden BEFORE its first page load — a webview that has never been presented never loads, so park ' +
   'it from `on_page_load` instead of `setup` (see `reticle_tauri::on_page_load`, which does this for ' +
-  'RETICLE_HEADLESS=1). (2) the window was hidden after load and then went quiet — a loaded macOS ' +
-  'WKWebView stops answering commands after a short pause even though capture still works; park it ' +
+  'RETICLE_HEADLESS=1). (2) the window was hidden after load and then went quiet — that has been ' +
+  'observed on a hidden macOS WKWebView after a pause, even though capture still works; park it ' +
   'off-screen rather than calling hide. If neither fits, the page is reachable but not executing, ' +
   'which is worth reporting.';
 
