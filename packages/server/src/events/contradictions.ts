@@ -5,6 +5,7 @@ import {
   isDevToolingUrl,
   isSameDocument,
   isSameEditEpoch,
+  urlForMatch,
   type ReticleEvent,
 } from '@reticlehq/core';
 import { describeSuperseded } from './observed-in-window.js';
@@ -65,6 +66,8 @@ export type OwnContradiction = Contradiction & { kind: ContradictionKind };
 interface NetCall {
   method: string;
   url: string;
+  /** Grader haystack — the raw request when redaction rewrote `url`. */
+  matchUrl: string;
   status: number | undefined;
   /**
    * `undefined` means NO VERDICT — not failure.
@@ -83,6 +86,7 @@ function netCall(e: ReticleEvent): NetCall {
   return {
     method: (asString(e.data['method']) ?? '').toUpperCase(),
     url: asString(e.data['url']) ?? '',
+    matchUrl: urlForMatch(e.data),
     status,
     // `ok` is authoritative when present (IPC sets it explicitly); status is the HTTP fallback.
     // Neither present = no verdict was ever reported, which stays undefined all the way through.
