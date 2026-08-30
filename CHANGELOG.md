@@ -7,6 +7,7 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 ### Added
 
 - **`@reticlehq/core` + `@reticlehq/server` — socket-level MCP POST failures are now a session count.** `ENOBUFS`, `EMFILE`, `EADDRNOTAVAIL` and `ECONNREFUSED` before any bytes were sent never produced `tool_refused` (the handler never ran) and never produced `mcp_connection_lost` (the SSE stream was fine), so a keep-alive retry that saved the call was indistinguishable from one that never fired. `postSocketFailures` and `postRetriesSaved` ride the existing session summary, omitted when zero, and the proxy awaits the flush before exit.
+- **`@reticlehq/server` — one-shot primary nav smoke.** `reticle_verify { action: "nav_smoke" }` queries links inside a nav landmark (default `nav`), clicks each internal href, and returns one consolidated table with `renderedWithoutConsoleErrors` per row — honest naming for "rendered without new console errors", not "the route works". Closes [#167](https://github.com/reticlehq/reticle/issues/167).
 
 ### Fixed
 
@@ -15,9 +16,6 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 - **`@reticlehq/server` — a scheme-less `RETICLE_ALLOWED_ORIGINS` entry is no longer discarded silently.** `RETICLE_ALLOWED_ORIGINS=myapp.test` appeared to work and had no effect: an entry without a scheme fails origin normalization and was filtered out without a trace, so the allow-list looked configured while every dial from that origin was refused at the gate — and the refusal read as a problem with the page, not with the config. The bridge now logs an `allowed_origin_ignored` warning at startup for each dropped entry, naming the entry and the accepted form (`scheme://host[:port]`), with the corrected value spelled out so the fix is copy-pasteable. The drop itself is unchanged — an invalid entry still allows nothing.
 
 - **`reticle-tauri` — macOS `RETICLE_HEADLESS=1` parks off-screen instead of `hide()`.** Hiding after first paint is the remaining headless path we have not proved safe on every macOS WKWebView: a hidden window has been observed to go quiet after a pause while capture still works (it renders the webview, not the screen). Linux and Windows still hide. The timeout copy names that pause as a candidate, not a fact.
-### Added
-
-- **`@reticlehq/server` — one-shot primary nav smoke.** `reticle_verify { action: "nav_smoke" }` queries links inside a nav landmark (default `nav`), clicks each internal href, and returns one consolidated table with `renderedWithoutConsoleErrors` per row — honest naming for "rendered without new console errors", not "the route works". Closes [#167](https://github.com/reticlehq/reticle/issues/167).
 
 ## [2.12.0] - 2026-08-24
 

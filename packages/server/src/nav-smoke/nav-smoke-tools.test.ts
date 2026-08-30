@@ -51,15 +51,16 @@ describe('reticle_nav_smoke tool', () => {
           clock += 1;
           const href = 'e1' === args?.['ref'] ? '/tickets' : '/team';
           buffer.push({
-            type: EventType.ROUTE_CHANGE,
             t: clock,
+            type: EventType.ROUTE_CHANGE,
+            sessionId: 'demo',
             data: { pathname: href },
-          } as ReticleEvent);
+          });
           return ok({ dispatched: true });
         }
         return ok({});
       },
-    } as Session;
+    } as unknown as Session;
 
     const routes: string[] = [];
     const deps = {
@@ -108,15 +109,16 @@ describe('reticle_nav_smoke tool', () => {
         if (name === ReticleCommand.ACT) {
           clock += 1;
           buffer.push({
-            type: EventType.CONSOLE_ERROR,
             t: clock,
+            type: EventType.CONSOLE_ERROR,
+            sessionId: 'demo',
             data: { message: 'boom' },
-          } as ReticleEvent);
+          });
           return ok({ dispatched: true });
         }
         return ok({});
       },
-    } as Session;
+    } as unknown as Session;
 
     const deps = {
       sessions: { resolve: () => session } as SessionManager,
@@ -156,7 +158,7 @@ describe('reticle_nav_smoke tool', () => {
         }
         throw new Error(`unexpected command: ${name}`);
       },
-    } as Session;
+    } as unknown as Session;
 
     const deps = {
       sessions: { resolve: () => session } as SessionManager,

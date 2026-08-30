@@ -144,7 +144,7 @@ function rowFromSkipped(link: NavLinkCandidate): NavSmokeRow {
     ...(link.href === undefined ? {} : { href: link.href }),
     renderedWithoutConsoleErrors: false,
     consoleErrors: 0,
-    skipped: link.skip,
+    ...(link.skip === undefined ? {} : { skipped: link.skip }),
   };
 }
 
@@ -205,10 +205,11 @@ export async function navSmoke(
 
     const events = session.eventsSince(since);
     const consoleErrors = events.filter(isConsoleError).length;
+    const route = latestRoute(events, session.url);
     rows.push({
       label: link.name,
       ...(link.href === undefined ? {} : { href: link.href }),
-      route: latestRoute(events, session.url),
+      ...(route === undefined ? {} : { route }),
       renderedWithoutConsoleErrors: actOk && 0 === consoleErrors,
       consoleErrors,
     });
