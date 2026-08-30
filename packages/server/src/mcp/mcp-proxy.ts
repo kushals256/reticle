@@ -34,6 +34,8 @@ import {
   OnRequest,
 } from './proxy-lifecycle.js';
 import { describePresence, probePresence } from '../daemon/port-presence.js';
+import { getSessionMetrics } from '../telemetry/session-metrics.js';
+import { flushProxySessionMetrics } from '../telemetry/proxy-telemetry.js';
 /**
  * The same `/status` probe `doctor`, `status` and `kill` ask with. Reused rather than re-written:
  * the whole defect this import closes was the proxy answering a DIFFERENT question from every other
@@ -380,6 +382,8 @@ export function postToSession(
           // A non-2xx from the daemon MCP endpoint used to be swallowed, hanging the JSON-RPC call
           // client-side with no diagnostic. It is a refusal: no response is coming over the stream.
           log('reticle_mcp_proxy_post_non2xx', { status, path: options.path });
+        } else if (retryCount > 0) {
+          getSessionMetrics().recordPostRetrySaved();
         }
         res.resume(); // drain so the socket is reused
         resolve(
@@ -399,6 +403,8 @@ export function postToSession(
       req.on('error', (err) => {
         if (settled) return;
         settled = true;
+        // Invisible to mcp_connection_lost (SSE is up) and to tool_refused (handler never ran).
+        getSessionMetrics().recordPostSocketFailure();
         const bytesWritten =
           socket === undefined ? 0 : Math.max(0, socket.bytesWritten - socketBytesBeforeRequest);
         if (shouldRetryUnsentPost(err, bytesWritten, retryCount)) {
@@ -966,7 +972,8 @@ export function startMcpProxy(
     process.stdin.on('end', () => {
       const quit = (code: number): void => {
         stopped = true;
-        process.exit(code);
+        // Await: fire-and-forget here is how daemon_stopped never arrived.
+        void flushProxySessionMetrics().finally(() => process.exit(code));
       };
       if (0 === pending.unanswered.length) {
         quit(0);
