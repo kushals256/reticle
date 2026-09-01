@@ -187,23 +187,24 @@ export function decideOpen(sessions: OpenSession[], url: string | undefined): Op
 /** How long the CLI waits for the daemon's session probe — longer than the command budget inside it. */
 const SESSION_PROBE_HTTP_TIMEOUT_MS = 2500;
 
-type ProbePost = (
-  port: number,
-  path: string,
-  body: string,
-) => Promise<{ status: number; body: string }>;
+type ProbePost = (port: number, sessionId: string) => Promise<{ status: number; body: string }>;
 
+/**
+ * POST `{sessionId}` to the daemon's probe route. The path is the named constant, never an
+ * argument — a parameterised path on `http.request` is what CodeQL reads as file data leaving
+ * the host, and this call is loopback-only to a route we named.
+ */
 function postSessionProbe(
   port: number,
-  path: string,
-  body: string,
+  sessionId: string,
 ): Promise<{ status: number; body: string }> {
+  const body = JSON.stringify({ sessionId });
   return new Promise((resolve, reject) => {
     const req = http.request(
       {
         host: LOOPBACK_HOST,
         port,
-        path,
+        path: SESSION_PROBE_PATH,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) },
         timeout: SESSION_PROBE_HTTP_TIMEOUT_MS,
@@ -246,7 +247,7 @@ export async function sessionAnswers(
   post: ProbePost = postSessionProbe,
 ): Promise<boolean> {
   try {
-    const res = await post(port, SESSION_PROBE_PATH, JSON.stringify({ sessionId }));
+    const res = await post(port, sessionId);
     if (404 === res.status) return true;
     if (200 !== res.status) return true;
     const alive = aliveFromProbeBody(res.body);
