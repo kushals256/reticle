@@ -65,7 +65,7 @@ export interface RouteParts {
 }
 
 function asPayload(value: unknown): Record<string, unknown> | undefined {
-  if (value === null || 'object' !== typeof value || Array.isArray(value)) return undefined;
+  if (null === value || 'object' !== typeof value || Array.isArray(value)) return undefined;
   return value as Record<string, unknown>;
 }
 
