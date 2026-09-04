@@ -4,6 +4,10 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
 ## [Unreleased]
 
+### Fixed
+
+- **server:** A poll or an unnamed analytics write is not a double submit, so it no longer turns a proved assertion `unknown` (`#673`).
+
 ## [2.13.1] — 2026-09-02
 
 ### Fixed
