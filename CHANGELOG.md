@@ -4,6 +4,10 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
 ## [Unreleased]
 
+### Fixed
+
+- **server:** A text or alert that already proves an auth denial is not overturned by the 401/403 that produced it (`#674`).
+
 ## [2.13.1] — 2026-09-02
 
 ### Fixed
