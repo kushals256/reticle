@@ -6,6 +6,7 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
 ### Fixed
 
+- **`@reticlehq/server` — a recorded `until` located by role and name is kept, and replay evaluates it.** `act_and_wait` already folds `until` into the saved step's `expect` for net, signal, console, state, and a testid. A control addressed by `{ role, name }` — the shape a drive actually writes when there is no testid — was dropped because the replay filter still required a testid, even though `successToPredicate` compiles role and name. The saved flow then graded assertion-free while the agent had already proved the button. Stop dropping it; replay waits on it the same way a flow-level success does. Closes [#695](https://github.com/reticlehq/reticle/issues/695).
 - **`@reticlehq/server` — `init --app <dir>` no longer silently repoints a root config at a different project.** In a monorepo with two instrumented apps, each with its own correct `.reticle.json`, a root config naming the first was overwritten to name the second, reported as the reassuring "the same config where the agent runs". An agent started at that root then reads one project's config and drives another. Absent and conflicting were the same branch; a root config that is merely missing is still written, because that is the case it was added for, and one that names a different project is now named in the report and left alone — the app's own config is correct either way, so the app is fully instrumented and only the pointer is left for a human to settle.
 
 ## [2.13.1] — 2026-09-02
