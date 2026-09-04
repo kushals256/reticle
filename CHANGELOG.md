@@ -4,6 +4,10 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
 ## [Unreleased]
 
+### Fixed
+
+- **server:** A flow step `expect` accepts the same `allOf` grammar as `reticle_act_and_wait`, and a parse failure names the step and key instead of calling the file malformed (`#696`).
+
 ## [2.13.1] — 2026-09-02
 
 ### Fixed
