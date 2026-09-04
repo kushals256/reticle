@@ -6,6 +6,7 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
 ### Fixed
 
+- **`@reticlehq/server` — a recording that leaves a page and returns to it is named at stop/save.** The recorder stores clicks, not navigations, so a drive into a product and back to search saved both clicks and dropped the route change between them. Replay then looked for a search-only control while still on the product page. Stop and `flow_save` now warn with the journey (`/search → /product/1 → /search`) instead of writing a flow that cannot replay. Linear A→B→C stays quiet. The flow file is unchanged. Closes [#603](https://github.com/reticlehq/reticle/issues/603).
 - **`@reticlehq/server` — `init --app <dir>` no longer silently repoints a root config at a different project.** In a monorepo with two instrumented apps, each with its own correct `.reticle.json`, a root config naming the first was overwritten to name the second, reported as the reassuring "the same config where the agent runs". An agent started at that root then reads one project's config and drives another. Absent and conflicting were the same branch; a root config that is merely missing is still written, because that is the case it was added for, and one that names a different project is now named in the report and left alone — the app's own config is correct either way, so the app is fully instrumented and only the pointer is left for a human to settle.
 
 ## [2.13.1] — 2026-09-02
