@@ -6,6 +6,7 @@ All notable changes to the **`@reticlehq/*`** packages are documented here (each
 
 ### Fixed
 
+- **`@reticlehq/server` — `write-field-ignored` stays silent on create sentinels and identity keys.** A POST that sent `sub_category_id: 0` and got back the new row's id, or a public workspace id echoed as an internal row id, was reported as a half-applied write — a strong claim about a data-integrity bug that did not exist — and one such request poisoned every later assert in the window. `0` / `""` / `null` mean "server, you decide"; `id` / `*_id` are identities the server assigns. A locale that came back as a different locale still fires. The copy names a different echo rather than a write the UI cannot know about. Closes [#670](https://github.com/reticlehq/reticle/issues/670).
 - **`@reticlehq/server` — `init --app <dir>` no longer silently repoints a root config at a different project.** In a monorepo with two instrumented apps, each with its own correct `.reticle.json`, a root config naming the first was overwritten to name the second, reported as the reassuring "the same config where the agent runs". An agent started at that root then reads one project's config and drives another. Absent and conflicting were the same branch; a root config that is merely missing is still written, because that is the case it was added for, and one that names a different project is now named in the report and left alone — the app's own config is correct either way, so the app is fully instrumented and only the pointer is left for a human to settle.
 
 ## [2.13.1] — 2026-09-02
