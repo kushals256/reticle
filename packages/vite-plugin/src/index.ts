@@ -26,7 +26,6 @@ import {
   optimizerOptionsKey,
   optimizerOptions,
 } from './installed.js';
-import type { ConfigEnv, UserConfig } from 'vite';
 
 export const RETICLE_VITE_PLUGIN_NAME = 'reticle';
 
@@ -236,17 +235,56 @@ export interface ReticleVitePluginOptions {
 }
 
 /**
+ * The `config` hook's input, structurally — not Vite's `UserConfig`.
+ *
+ * Importing `UserConfig` here made `ReticleVitePlugin` contain `UserConfig` contain `Plugin[]`
+ * contain `ReticleVitePlugin`, and tsc died with TS2321 (excessive stack depth) the moment
+ * `reticle()` sat next to another plugin in a typed `defineConfig` — measured on
+ * `apps/electron-vue-pinia`. `watch: null` is the one hole the previous stand-in had: SvelteKit
+ * sets it, and a `{ ignored?: … }` parameter rejected it under contravariance.
+ */
+interface ReticleViteConfigInput {
+  optimizeDeps?:
+    | {
+        include?: string[] | undefined;
+        esbuildOptions?: Record<string, unknown> | undefined;
+        rolldownOptions?: Record<string, unknown> | undefined;
+      }
+    | undefined;
+  define?: Record<string, string> | undefined;
+  root?: string | undefined;
+  server?:
+    | {
+        watch?: { ignored?: unknown } | null | undefined;
+      }
+    | undefined;
+}
+
+interface ReticleViteConfigEnv {
+  command: string;
+  mode: string;
+}
+
+/**
  * Callable plugin surface for tests, proven assignable to Vite's `Plugin`.
  *
- * The published contract is that `reticle()` drops into `plugins: [reticle()]` with no cast. A
- * bespoke `config` parameter that omitted `server.watch: null` (SvelteKit, Vite 7) was not a
- * `Plugin` under contravariance, which is how svelte-check failed on a working plugin. Hooks stay
- * callable here so unit tests can drive them; `vite-types-assignable.test.ts` assigns the return
- * value to `Plugin` / `PluginOption` / `defineConfig`, which is the consumer's check.
+ * Hooks stay callable so unit tests can drive them. `vite-types-assignable.test.ts` assigns the
+ * return to `Plugin` / `PluginOption` / `defineConfig`, which is the consumer's check. The config
+ * parameter is a shallow stand-in on purpose — see ReticleViteConfigInput.
  */
 export interface ReticleVitePlugin {
   name: string;
-  config?: (config: UserConfig, env?: ConfigEnv) => UserConfig | null | void;
+  config?: (
+    config: ReticleViteConfigInput,
+    env?: ReticleViteConfigEnv,
+  ) => {
+    optimizeDeps: {
+      include: string[];
+      [optionsKey: string]: unknown;
+    };
+    define: Record<string, string>;
+    server: { watch: { ignored: (string | RegExp)[] } };
+  };
   /** Absent in desktop mode, where the plugin must also run for `vite build`. */
   apply?: 'serve';
   enforce: 'pre';
@@ -260,13 +298,13 @@ export interface ReticleVitePlugin {
   checkInjectedForTest?: () => void;
 }
 
-type ViteWatch = NonNullable<NonNullable<UserConfig['server']>['watch']>;
-
 /**
  * The app's `server.watch.ignored` as a list. `watch` itself may be `null` (SvelteKit); that is
- * "no watcher options", not a missing list, and a `{ ignored?: … }` parameter rejected it.
+ * "no watcher options", not a missing list.
  */
-function watchIgnoredList(watch: ViteWatch | null | undefined): readonly (string | RegExp)[] {
+function watchIgnoredList(
+  watch: { ignored?: unknown } | null | undefined,
+): readonly (string | RegExp)[] {
   if (null === watch || undefined === watch) return [];
   const ignored = watch.ignored;
   if (undefined === ignored) return [];
@@ -679,7 +717,7 @@ export function reticle(options: ReticleVitePluginOptions = {}): ReticleVitePlug
      * second accessibility engine, so keeping those names would make Vite pre-bundle packages the
      * app may not have and blame Reticle for a false `Failed to resolve dependency` warning.
      */
-    config(config: UserConfig, _env?: ConfigEnv) {
+    config(config: ReticleViteConfigInput, _env?: ReticleViteConfigEnv) {
       // Everything below asks what the APP has installed, so every lookup is rooted here and never
       // at the plugin's own location. Vite defaults an omitted root to the cwd; so do we.
       const appRoot = config.root ?? process.cwd();

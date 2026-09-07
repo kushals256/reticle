@@ -12,10 +12,6 @@ export default defineConfig({
         '@renderer': resolve('src/renderer/src')
       }
     },
-    plugins: [
-      vue(),
-      // @ts-expect-error: electron-vite and standard vite Plugin types mismatch in monorepo
-      reticle()
-    ]
+    plugins: [vue(), reticle()]
   }
 })

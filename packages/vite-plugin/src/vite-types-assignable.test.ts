@@ -3,11 +3,10 @@
  *
  * Two independent assignability failures, both invisible at runtime:
  *
- * 1. A structural `ReticleVitePlugin` is not Vite's `Plugin`. The previous test assigned to
- *    `PluginOption[]` against THIS repo's Vite 8, which the stand-in happened to satisfy, while
- *    Vite 6 and Vite 7 consumers got TS2769 on `plugins: [reticle()]`. Returning `Plugin` from the
- *    `vite` peer binds the published `.d.ts` to the consumer's Vite, which is the only pin that
- *    covers every major we claim (`>=4`) without vendoring each one.
+ * 1. A structural `ReticleVitePlugin` must stay assignable to Vite's `Plugin` without importing
+ *    `UserConfig` — that type contains `Plugin[]`, so naming it on our hook made tsc TS2321
+ *    (excessive stack depth) the moment `reticle()` sat next to another plugin. The consumer check
+ *    is an assignment to `Plugin` / `PluginOption` / `defineConfig` in this file.
  *
  * 2. The `config` hook's parameter typed `server.watch` as `{ ignored?: … }`, so Vite's
  *    `watch: null` (SvelteKit, Vite 7) was not accepted. Contravariance: a hook that cannot take
@@ -58,5 +57,13 @@ describe('public types stay consumable from a strict TS project', () => {
     expect(next).toBeDefined();
     const ignored = undefined !== next && null !== next ? next.server?.watch?.ignored : undefined;
     expect(Array.isArray(ignored) ? ignored : []).toContain(JOURNAL_IGNORE);
+  });
+
+  it('sits next to another plugin without exhausting the type checker', () => {
+    // Importing UserConfig into ReticleVitePlugin made tsc TS2321 (excessive stack depth) the
+    // moment reticle() shared a plugins array with vue() — `apps/electron-vue-pinia` on `pnpm build`.
+    const other: Plugin = { name: 'other' };
+    const config = defineConfig({ plugins: [other, reticle()] });
+    expect(config).toBeDefined();
   });
 });
