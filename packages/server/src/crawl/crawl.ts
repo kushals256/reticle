@@ -19,6 +19,7 @@ import {
 } from '../tools/tools-helpers.js';
 import { ReticleTool } from '../tools/tool-names.js';
 import { findContradictions } from '../events/contradictions.js';
+import { SessionReplacedError } from '../session/pending-commands.js';
 
 /** The slice of Session the crawler needs — so tests inject a fake without a live browser. */
 export interface CrawlSession {
@@ -187,6 +188,26 @@ export function legitimatelyInert(desc: string): boolean {
   return /\b(textbox|searchbox|combobox|spinbutton|alert|status|log|timer|marquee)\b/.test(desc);
 }
 
+function controlKey(item: { ref: string; desc: string }): string {
+  return item.ref !== '' ? item.ref : item.desc;
+}
+
+async function snapshotInteractive(
+  session: CrawlSession,
+  opts: CrawlOptions,
+): Promise<{ items: { ref: string; desc: string }[]; truncated: boolean; ok: boolean }> {
+  const snap = await session.command(ReticleCommand.SNAPSHOT, {
+    mode: 'interactive',
+    ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
+  });
+  const snapshot = snap.ok ? ((snap.result ?? {}) as { tree?: string; truncated?: boolean }) : {};
+  return {
+    items: parseInteractive(snapshot.tree ?? ''),
+    truncated: true === snapshot.truncated,
+    ok: snap.ok,
+  };
+}
+
 /**
  * How many interactive controls exist now that did not exist when the crawl enumerated.
  *
@@ -200,14 +221,10 @@ async function countRevealed(
   opts: CrawlOptions,
   before: ReadonlyArray<{ ref: string; desc: string }>,
 ): Promise<number> {
-  const snap = await session.command(ReticleCommand.SNAPSHOT, {
-    mode: 'interactive',
-    ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
-  });
-  if (!snap.ok) return 0;
-  const tree = ((snap.result ?? {}) as { tree?: string }).tree ?? '';
-  const known = new Set(before.map((i) => (i.ref !== '' ? i.ref : i.desc)));
-  return parseInteractive(tree).filter((i) => !known.has(i.ref !== '' ? i.ref : i.desc)).length;
+  const next = await snapshotInteractive(session, opts);
+  if (!next.ok) return 0;
+  const known = new Set(before.map(controlKey));
+  return next.items.filter((i) => !known.has(controlKey(i))).length;
 }
 
 /**
@@ -253,30 +270,27 @@ export async function crawl(
   const maxSteps = opts.maxSteps ?? CRAWL_DEFAULTS.MAX_STEPS;
   const settleMs = opts.settleMs ?? CRAWL_DEFAULTS.SETTLE_MS;
 
-  const snap = await session.command(ReticleCommand.SNAPSHOT, {
-    mode: 'interactive',
-    ...(opts.scope !== undefined ? { scope: opts.scope } : {}),
-  });
-  const snapshot = snap.ok ? ((snap.result ?? {}) as { tree?: string; truncated?: boolean }) : {};
-  const tree = snapshot.tree ?? '';
-  const items = parseInteractive(tree);
+  const first = await snapshotInteractive(session, opts);
+  const items = first.items;
   // The snapshot walk stops at its node cap and returns a DOCUMENT-ORDER PREFIX, so on a large page
   // the controls it never reached are not merely unclicked — they were never seen. Reporting
   // `interactiveFound` without this would state a control count that is really a cap, and
   // `truncated:false` would positively assert that nothing was cut.
-  const coverageCapped = true === snapshot.truncated;
+  const coverageCapped = first.truncated;
 
   const anomalies: CrawlAnomaly[] = [];
   const visited: string[] = [];
   const counts = { consoleErrors: 0, failedRequests: 0, deadControls: 0, contradictions: 0 };
   const seen = new Set<string>();
+  const queue = [...items];
 
   let stepsRun = 0;
-  for (const item of items) {
-    if (stepsRun >= maxSteps) break;
+  while (stepsRun < maxSteps && 0 < queue.length) {
+    const item = queue.shift();
+    if (item === undefined) break;
     // Dedupe by ref (the unique element), not by label — two "Delete"/"Edit" controls share a desc
     // but are different controls; collapsing them by label under-covers list/table UIs.
-    const dedupeKey = item.ref !== '' ? item.ref : item.desc;
+    const dedupeKey = controlKey(item);
     if (seen.has(dedupeKey)) continue; // don't re-click the same control
     seen.add(dedupeKey);
     stepsRun += 1;
@@ -284,7 +298,8 @@ export async function crawl(
 
     const since = session.elapsed();
     session.beginAction?.(ReticleTool.CRAWL, { ref: item.ref, action: ActionType.CLICK });
-    let act;
+    let act: CommandResult | undefined;
+    let followedDocument = false;
     try {
       // One span per control clicked, so a slow crawl names the control rather than reporting a
       // single multi-second total. The settle sleep below is INSIDE it deliberately: it is part of
@@ -298,13 +313,27 @@ export async function crawl(
         await sleep(settleMs);
         return clicked;
       });
+    } catch (error) {
+      // Same-id reconnect after a full page load. Re-issuing the ACT would be a double submit;
+      // continuing on the document that took over is the crawl. Stale refs from the departed
+      // page are dropped — an MPA restarts its ref sequence, so keeping `seen` would skip the
+      // destination's first control when it reused `e1`.
+      if (!(error instanceof SessionReplacedError)) throw error;
+      followedDocument = true;
+      const next = await snapshotInteractive(session, opts);
+      if (next.ok) {
+        queue.splice(0, queue.length);
+        seen.clear();
+        queue.push(...next.items);
+      }
     } finally {
       // Close on every exit so a throw cannot leak the window onto the next control's events.
       session.finishAction?.();
     }
+    if (followedDocument || undefined === act) continue;
     const events = session.eventsSince(since);
     // Captured at act time, so it survives a click that unmounts its own control.
-    const src = sourceOf(asRecord(act?.result)['source']);
+    const src = sourceOf(asRecord(act.result)['source']);
     const source = src === undefined ? {} : { source: `${src.file}:${String(src.line)}` };
 
     const errs = events.filter(isConsoleError);

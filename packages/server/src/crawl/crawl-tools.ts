@@ -2,11 +2,34 @@ import { z } from 'zod';
 import { ReticleTool } from '../tools/tool-names.js';
 import { asNumber, asString } from '../tools/tools-helpers.js';
 import { stepCountSchema, timeoutMsSchema } from '../tools/numeric-bounds.js';
-import { crawl, type CrawlOptions } from './crawl.js';
+import { crawl, type CrawlOptions, type CrawlSession } from './crawl.js';
 import type { ToolDef, ToolDeps } from '../tools/tools.js';
 import { routeFromUrl, routesFromEvents } from '../project/learned-routes.js';
 
 const nodeSleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Every command and event read goes through `resolve` again, so a same-id reconnect mid-crawl
+ * answers from the page that took over rather than from the displaced handle's empty buffer.
+ */
+function bindLiveSession(get: () => CrawlSession): CrawlSession {
+  return {
+    command: (name, args) => get().command(name, args),
+    elapsed: () => get().elapsed(),
+    eventsSince: (cursor) => get().eventsSince(cursor),
+    get currentDocumentId() {
+      return get().currentDocumentId;
+    },
+    get currentEditEpoch() {
+      return get().currentEditEpoch;
+    },
+    get url() {
+      return get().url;
+    },
+    beginAction: (tool, args) => get().beginAction?.(tool, args),
+    finishAction: (error, settled, settleMs) => get().finishAction?.(error, settled, settleMs),
+  };
+}
 
 /**
  * The autonomous "smart monkey" tool. Builds on reticle_explore (which only LISTS) by
@@ -74,9 +97,12 @@ export const CRAWL_TOOLS: ToolDef[] = [
       truncated: z.boolean(),
     },
     handler: async (deps: ToolDeps, args) => {
-      const session = deps.sessions.resolve(asString(args['sessionId']));
+      const requested = asString(args['sessionId']);
+      const first = deps.sessions.resolve(requested);
+      const id = first.id;
+      const session = bindLiveSession(() => deps.sessions.resolve(id));
       const since = session.elapsed();
-      const initialRoute = routeFromUrl(session.url);
+      const initialRoute = routeFromUrl(first.url);
       const maxSteps = asNumber(args['maxSteps']);
       const settleMs = asNumber(args['settleMs']);
       const scope = asString(args['scope']);
