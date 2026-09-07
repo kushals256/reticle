@@ -77,4 +77,23 @@ describe('preflight refuses what cannot possibly work', () => {
     expect(refusal).toContain('--url');
     expect(refusal).not.toContain('--dev-cmd');
   });
+
+  /**
+   * Naming `--url` in the refusal is not the same as honouring it. The message used to send the
+   * caller in a circle: they had already passed the flag the sentence names, and the check still
+   * ran. With a URL there is nothing to install and nothing to start, so a missing package manager
+   * cannot be a reason to stop.
+   */
+  it('does not refuse a missing package manager when --url says the app is already served', () => {
+    expect(
+      preflightRefusal(io({ probe: (cmd) => 'pnpm' !== cmd }), 'pnpm', { alreadyServed: true }),
+    ).toBeUndefined();
+  });
+
+  it('still names an unwritable checkout when --url is set: init still has to write', () => {
+    const refusal = preflightRefusal(io({ canWrite: () => false }), 'pnpm', {
+      alreadyServed: true,
+    });
+    expect(refusal).toContain('not writable');
+  });
 });

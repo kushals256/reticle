@@ -28,6 +28,8 @@ interface MemoryOpts {
   claudeAvailable?: boolean;
   mcpExists?: boolean;
   cursor?: boolean;
+  /** False means `probe(pm, ['--version'])` fails — the machine lacks the resolved package manager. */
+  packageManagerPresent?: boolean;
 }
 
 interface Sinks {
@@ -44,7 +46,13 @@ function memoryIo(
   // see the redirect happen and none of what it did.
   sinks: Sinks = { written: {}, lines: [], execCalls: [] },
 ): MemoryIo {
-  const { execOk = true, claudeAvailable = true, mcpExists = false, cursor = false } = opts;
+  const {
+    execOk = true,
+    claudeAvailable = true,
+    mcpExists = false,
+    cursor = false,
+    packageManagerPresent = true,
+  } = opts;
   const { written, lines, execCalls } = sinks;
   // Simulate the Cursor config dir existing when requested.
   const present = { ...files };
@@ -124,7 +132,18 @@ function memoryIo(
       execCalls.push({ command, args });
       return execOk;
     },
-    probe: (_command, args) => (args.includes('get') ? mcpExists : claudeAvailable),
+    probe: (command, args) => {
+      // Package-manager presence is a different question from "is claude on PATH". Both probes
+      // pass `--version`; keying on the args alone made a missing-claude fixture look like a
+      // missing pnpm, and the reverse.
+      if (
+        ('pnpm' === command || 'yarn' === command || 'bun' === command || 'npm' === command) &&
+        args.includes('--version')
+      ) {
+        return packageManagerPresent;
+      }
+      return args.includes('get') ? mcpExists : claudeAvailable;
+    },
     print: (l) => lines.push(l),
   };
 }
@@ -214,6 +233,26 @@ describe('runInit', () => {
     const r = runInit(OPTS, io);
     expect(r.ok).toBe(false);
     expect(io.lines.join('\n')).toContain('No package.json');
+  });
+
+  /**
+   * The preflight names `--url` as the way past a missing package manager. Honouring the flag is
+   * a different code path than printing its name, and they used to disagree: `init --url` still
+   * refused. A URL means the app is already served — nothing to install, nothing to start.
+   */
+  it('does not refuse a missing package manager when --url says the app is already served', () => {
+    const io = memoryIo({ ...VITE_FILES, 'pnpm-lock.yaml': '' }, { packageManagerPresent: false });
+    const r = runInit({ ...OPTS, url: 'http://localhost:3100' }, io);
+    expect(r.ok).toBe(true);
+    expect(io.lines.join('\n')).not.toContain('pnpm is not installed');
+  });
+
+  it('still refuses a missing package manager when --url was not passed', () => {
+    const io = memoryIo({ ...VITE_FILES, 'pnpm-lock.yaml': '' }, { packageManagerPresent: false });
+    const r = runInit(OPTS, io);
+    expect(r.ok).toBe(false);
+    expect(io.lines.join('\n')).toContain('pnpm is not installed');
+    expect(io.lines.join('\n')).toContain('--url');
   });
 
   it('hands a non-JS project the script-tag snippet, not just a diagnosis', () => {

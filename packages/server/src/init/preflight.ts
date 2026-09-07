@@ -32,7 +32,21 @@ const ALWAYS_PRESENT = 'npm';
  * here from `exists('pnpm-lock.yaml')` refused an npm app sitting under a pnpm monorepo on a machine
  * with no pnpm, which the install gate proves must succeed.
  */
-export function preflightRefusal(io: PreflightIo, packageManager: string): string | undefined {
+/** Optional switches the caller already knows; the IO surface stays about the machine. */
+export interface PreflightOpts {
+  /**
+   * `--url` was passed: the app is already being served, so init will not install packages or start
+   * a dev server. A missing package manager is then not a reason to stop — and the refusal that
+   * names `--url` as the way past must not fire when the flag is already in hand.
+   */
+  alreadyServed?: boolean;
+}
+
+export function preflightRefusal(
+  io: PreflightIo,
+  packageManager: string,
+  opts: PreflightOpts = {},
+): string | undefined {
   // First: on a read-only checkout nothing else matters, and one access check is cheaper and
   // quieter than spawning a subprocess to discover the same thing.
   if (!io.canWrite()) {
@@ -42,7 +56,10 @@ export function preflightRefusal(io: PreflightIo, packageManager: string): strin
     );
   }
   // What the project resolves to says nothing about what the machine HAS, and a project committed to
-  // pnpm on an npm-only box is an ordinary Monday.
+  // pnpm on an npm-only box is an ordinary Monday. `--url` is the named way past that: with a URL
+  // there is nothing to install and nothing to start, so the probe is skipped rather than naming a
+  // flag the caller already passed.
+  if (true === opts.alreadyServed) return undefined;
   if (ALWAYS_PRESENT !== packageManager && !io.probe(packageManager, ['--version'])) {
     return (
       `this project uses ${packageManager} (its lockfile says so) and ${packageManager} is not ` +

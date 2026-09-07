@@ -324,6 +324,13 @@ describe('parseCliArgs', () => {
     expect(parseCliArgs(['init', '--yes'], PORT)).toEqual(INIT_DEFAULTS);
   });
 
+  it('init --url is parsed so the preflight can honour it', () => {
+    expect(parseCliArgs(['init', '--url', 'http://localhost:3100'], PORT)).toEqual({
+      ...INIT_DEFAULTS,
+      url: 'http://localhost:3100',
+    });
+  });
+
   /**
    * What only the caller can know arrives as arguments, not as steps somebody walks through.
    *

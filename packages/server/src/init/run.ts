@@ -271,6 +271,12 @@ export interface InitOptions {
    * drive a flow by hand — three lines before this command does both.
    */
   continuesToRuntime?: boolean;
+  /**
+   * `--url`: the app is already being served here. Init will not start a dev server, and a missing
+   * package manager is not a reason to refuse — the preflight that names this flag as the way past
+   * has to actually take that path.
+   */
+  url?: string;
 }
 
 export interface InitIo {
@@ -873,6 +879,7 @@ function runInitSteps(options: InitOptions, io: InitIo): InitResult {
   // the app in frontend/ uses pnpm, and checking the file refused a scaffold the install gate proves
   // must succeed. Both conditions make every later phase fail, and each arrives far from its cause
   // when it is not checked here. See preflight.ts.
+  const served = options.url;
   const refusal = preflightRefusal(
     {
       cwd: () => io.cwd(),
@@ -880,6 +887,7 @@ function runInitSteps(options: InitOptions, io: InitIo): InitResult {
       probe: (command, args) => io.probe(command, args),
     },
     planInput.detection.packageManager,
+    { alreadyServed: undefined !== served && 0 < served.length },
   );
   if (refusal !== undefined) {
     io.print(refusal);

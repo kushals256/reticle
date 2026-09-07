@@ -137,6 +137,7 @@ function handleInit(parsed: {
       // `init` writing files was never the same thing as `init` working (#269).
       deferOutcome: true,
       continuesToRuntime: true !== parsed.filesOnly && true !== parsed.dryRun,
+      ...(parsed.url === undefined || 0 === parsed.url.length ? {} : { url: parsed.url }),
     },
     io,
   );
