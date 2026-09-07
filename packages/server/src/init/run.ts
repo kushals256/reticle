@@ -692,8 +692,9 @@ function applyEffects(
       // is decoration, and this one is the first thing a new user reads. Same shape as #139.
       const wrote = spanSync('init.write', { target: s.target, path: write.path }, () => {
         try {
-          // Format connect modules with the project's Prettier when present (#684) — a clean
-          // install must not fail the project's own lint on a file we just wrote.
+          // Format connect modules AND vite.config with the project's Prettier when present
+          // (#684 / #791) — a clean install must not fail the project's own lint on a file we just
+          // wrote.
           const content = formatGeneratedSource(write.content, write.path, io.cwd());
           io.writeFile(write.path, content);
         } catch {

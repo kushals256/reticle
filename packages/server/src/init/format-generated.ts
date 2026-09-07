@@ -2,9 +2,10 @@
  * Format a file `init` is about to write, using the project's own Prettier when it is installed.
  *
  * Reported from the field (#684): a clean CRA install failed the project's own lint because
- * `src/reticle-dev.ts` was emitted as one long line. The project already had Prettier; init never
- * asked it. Best-effort: resolve Prettier from the app (not from ours — we do not ship it), apply
- * its config, and on any failure return the original content so init never fails because of a
+ * `src/reticle-dev.ts` was emitted as one long line. The same class hit Vite configs (#791): an
+ * unformatted `plugins: [reticle(),react()]` insert failed svelte-check / prettier after `init`.
+ * Best-effort: resolve Prettier from the app (not from ours — we do not ship it), apply its
+ * config, and on any failure return the original content so init never fails because of a
  * formatter. Sync only — `applyEffects` is sync, and Prettier 3's async `format` cannot join here.
  */
 
@@ -14,9 +15,20 @@ import { basename, join } from 'node:path';
 /** Basenames of full-file generators that a project's lint will see. */
 const GENERATED_SOURCE_NAMES = new Set(['reticle-dev.ts', 'reticle-dev.tsx', 'hooks.client.ts']);
 
-/** True when this write is a connect/dev module lint will treat as project source. */
+/** Vite configs `init` patches. Same class as #684: an unformatted edit fails the project's lint. */
+const VITE_CONFIG_BASENAMES = new Set([
+  'vite.config.ts',
+  'vite.config.js',
+  'vite.config.mts',
+  'vite.config.mjs',
+  'vite.config.cts',
+  'vite.config.cjs',
+]);
+
+/** True when this write is a connect/dev module or Vite config lint will treat as project source. */
 export function isGeneratedSourcePath(relPath: string): boolean {
-  return GENERATED_SOURCE_NAMES.has(basename(relPath));
+  const name = basename(relPath);
+  return GENERATED_SOURCE_NAMES.has(name) || VITE_CONFIG_BASENAMES.has(name);
 }
 
 interface PrettierLike {

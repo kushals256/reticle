@@ -26,6 +26,7 @@ import {
   optimizerOptionsKey,
   optimizerOptions,
 } from './installed.js';
+import type { ConfigEnv, UserConfig } from 'vite';
 
 export const RETICLE_VITE_PLUGIN_NAME = 'reticle';
 
@@ -234,34 +235,18 @@ export interface ReticleVitePluginOptions {
   onWarn?: (message: string) => void;
 }
 
-/** Structural Vite plugin shape — avoids a hard dependency on `vite` while staying assignable to its `Plugin`. */
+/**
+ * Callable plugin surface for tests, proven assignable to Vite's `Plugin`.
+ *
+ * The published contract is that `reticle()` drops into `plugins: [reticle()]` with no cast. A
+ * bespoke `config` parameter that omitted `server.watch: null` (SvelteKit, Vite 7) was not a
+ * `Plugin` under contravariance, which is how svelte-check failed on a working plugin. Hooks stay
+ * callable here so unit tests can drive them; `vite-types-assignable.test.ts` assigns the return
+ * value to `Plugin` / `PluginOption` / `defineConfig`, which is the consumer's check.
+ */
 export interface ReticleVitePlugin {
   name: string;
-  /**
-   * Vite's `config` hook. Used to declare the SDK's CJS runtime deps for pre-bundling — see the
-   * implementation for why omitting them makes the whole SDK fail to load on linked setups.
-   */
-  config?: (config: {
-    optimizeDeps?: {
-      include?: string[];
-      /** Whichever key the app used — the plugin reads both and writes the one this Vite wants. */
-      esbuildOptions?: Record<string, unknown>;
-      rolldownOptions?: Record<string, unknown>;
-    };
-    define?: Record<string, string>;
-    root?: string;
-    server?: { watch?: { ignored?: (string | RegExp)[] } };
-  }) => {
-    optimizeDeps: {
-      include: string[];
-      // Either `esbuildOptions` or `rolldownOptions`, chosen from the installed Vite's major — v7
-      // deprecated the former and warns on every boot, blaming the plugin that set it. Typed as an
-      // index signature because the key is computed; the shape under it is the same either way.
-      [optionsKey: string]: unknown;
-    };
-    define: Record<string, string>;
-    server: { watch: { ignored: (string | RegExp)[] } };
-  };
+  config?: (config: UserConfig, env?: ConfigEnv) => UserConfig | null | void;
   /** Absent in desktop mode, where the plugin must also run for `vite build`. */
   apply?: 'serve';
   enforce: 'pre';
@@ -269,14 +254,30 @@ export interface ReticleVitePlugin {
   resolveId: (id: string, importer?: string) => string | null;
   load: (id: string) => string | null;
   transformIndexHtml: (html: string) => HtmlTag[];
-  /** Vite hands over the resolved config; used to resolve the HTML entry exactly. */
   configResolved?: (config: { root?: string; command?: string; base?: string }) => void;
-  /** Dev-server hook: keeps the served connect module from outliving the token it was built without. */
   configureServer?: (server: ViteDevServerLike) => void;
-  /** Build-time post-condition: desktop injection must have happened. */
   buildEnd?: () => void;
-  /** Runs the dev-mode injection check immediately. Test seam for the deferred timer. */
   checkInjectedForTest?: () => void;
+}
+
+type ViteWatch = NonNullable<NonNullable<UserConfig['server']>['watch']>;
+
+/**
+ * The app's `server.watch.ignored` as a list. `watch` itself may be `null` (SvelteKit); that is
+ * "no watcher options", not a missing list, and a `{ ignored?: … }` parameter rejected it.
+ */
+function watchIgnoredList(watch: ViteWatch | null | undefined): readonly (string | RegExp)[] {
+  if (null === watch || undefined === watch) return [];
+  const ignored = watch.ignored;
+  if (undefined === ignored) return [];
+  if ('string' === typeof ignored || ignored instanceof RegExp) return [ignored];
+  if (Array.isArray(ignored)) {
+    return ignored.filter(
+      (pattern): pattern is string | RegExp =>
+        'string' === typeof pattern || pattern instanceof RegExp,
+    );
+  }
+  return [];
 }
 
 /**
@@ -678,18 +679,7 @@ export function reticle(options: ReticleVitePluginOptions = {}): ReticleVitePlug
      * second accessibility engine, so keeping those names would make Vite pre-bundle packages the
      * app may not have and blame Reticle for a false `Failed to resolve dependency` warning.
      */
-    config(config: {
-      optimizeDeps?: {
-        include?: string[];
-        esbuildOptions?: Record<string, unknown>;
-        rolldownOptions?: Record<string, unknown>;
-      };
-      define?: Record<string, string>;
-      /** Vite's UserConfig root; undefined means the cwd. `configResolved` runs too late for this. */
-      root?: string;
-      /** The app's own watcher config; its `ignored` list is preserved, never replaced. */
-      server?: { watch?: { ignored?: (string | RegExp)[] } };
-    }) {
+    config(config: UserConfig, _env?: ConfigEnv) {
       // Everything below asks what the APP has installed, so every lookup is rooted here and never
       // at the plugin's own location. Vite defaults an omitted root to the cwd; so do we.
       const appRoot = config.root ?? process.cwd();
@@ -721,9 +711,10 @@ export function reticle(options: ReticleVitePluginOptions = {}): ReticleVitePlug
         // the platform's own form.
         //
         // Appends to the app's list rather than replacing it, so nothing it already excluded is lost.
+        // `watch: null` (SvelteKit) is "no watcher options", not "no ignored list to extend".
         server: {
           watch: {
-            ignored: [...(config.server?.watch?.ignored ?? []), JOURNAL_IGNORE],
+            ignored: [...watchIgnoredList(config.server?.watch), JOURNAL_IGNORE],
           },
         },
         // Expose the daemon's pairing token to hand-written connects in the same Vite app. The

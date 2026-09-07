@@ -12,11 +12,12 @@ import { formatGeneratedSource, isGeneratedSourcePath } from './format-generated
 import { nextReticleDevFile } from './snippets.js';
 
 describe('isGeneratedSourcePath', () => {
-  it('matches the connect modules lint will see, and nothing else', () => {
+  it('matches the connect modules and Vite configs lint will see, and nothing else', () => {
     expect(isGeneratedSourcePath('src/reticle-dev.ts')).toBe(true);
     expect(isGeneratedSourcePath('app/reticle-dev.tsx')).toBe(true);
     expect(isGeneratedSourcePath('src/hooks.client.ts')).toBe(true);
-    expect(isGeneratedSourcePath('vite.config.ts')).toBe(false);
+    expect(isGeneratedSourcePath('vite.config.ts')).toBe(true);
+    expect(isGeneratedSourcePath('vite.config.js')).toBe(true);
     expect(isGeneratedSourcePath('.reticle.json')).toBe(false);
   });
 });
