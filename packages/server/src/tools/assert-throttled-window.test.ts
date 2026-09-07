@@ -10,8 +10,12 @@
  *
  * These tests pin the connection: a FAILED predicate waited out on a throttled tab names the
  * starvation in its own failureReason; a healthy tab's failure says exactly what it said before.
+ *
+ * Polarity (#796): throttle distrusts an empty look, not a positive match. `{ absent: true }`
+ * against present content is `verified: "no"`; against nothing, it stays `"unknown"`.
  */
 import { describe, expect, it } from 'vitest';
+import { ReticleCommand, Verified, type CommandResult } from '@reticlehq/core';
 import { TOOLS, type ToolDef, type ToolDeps } from './tools.js';
 import { ReticleTool } from './tool-names.js';
 import type { SessionManager } from '../session/session.js';
@@ -76,5 +80,77 @@ describe('a failure waited out on a throttled tab says so', () => {
     const reason = result.failureReason ?? '';
     expect(reason.startsWith('no signal matched')).toBe(true);
     expect(reason.indexOf('matched')).toBeLessThan(reason.indexOf('throttled'));
+  });
+});
+
+/**
+ * MATCH answers a fixed count. Throttle is on. The absence claim is the one whose polarity
+ * inverts: finding the text is the failure, and finding nothing is the untrustworthy negative.
+ */
+function depsWithThrottledMatch(count: number): ToolDeps {
+  const session = createFakeSession({
+    bufferHealth: () => ({ total: 4, dropped: 0 }),
+    elapsed: () => 1000,
+    throttled: () => true,
+    health: () => ({
+      lastSeenMs: 5,
+      throttled: true,
+      focused: false,
+      recommendation: 'refocus it',
+    }),
+    command: (name: string): Promise<CommandResult> =>
+      Promise.resolve({
+        kind: 'command_result',
+        id: 'c',
+        ok: true,
+        result:
+          name === ReticleCommand.MATCH
+            ? {
+                matched: count > 0,
+                count,
+                elements:
+                  count > 0
+                    ? [
+                        {
+                          ref: 'e1',
+                          role: 'heading',
+                          name: 'ProgrammingError',
+                          states: [],
+                          visible: true,
+                        },
+                      ]
+                    : [],
+              }
+            : {},
+      }),
+  });
+  const sessions: Partial<SessionManager> = { resolve: () => session };
+  return { sessions: sessions as SessionManager } as unknown as ToolDeps;
+}
+
+const absentErrorText = {
+  predicate: { kind: 'text', contains: 'ProgrammingError', absent: true },
+  timeout_ms: 0,
+};
+
+describe('an absence check on a throttled tab keeps the polarity of what it found', () => {
+  it('returns no when matching elements are on the page', async () => {
+    const result = (await tool(ReticleTool.ASSERT).handler(
+      depsWithThrottledMatch(13),
+      absentErrorText,
+    )) as Record<string, unknown>;
+    expect(result['pass']).toBe(false);
+    expect(result['verified']).toBe(Verified.NO);
+    expect(result['inconclusive']).toBeUndefined();
+  });
+
+  it('returns unknown when the look found nothing', async () => {
+    const result = (await tool(ReticleTool.ASSERT).handler(
+      depsWithThrottledMatch(0),
+      absentErrorText,
+    )) as Record<string, unknown>;
+    expect(result['pass']).toBe(true);
+    expect(result['verified']).toBe(Verified.UNKNOWN);
+    expect(result['inconclusive']).toBeTypeOf('string');
   });
 });

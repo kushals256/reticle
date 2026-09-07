@@ -700,6 +700,50 @@ describe('a throttled tab timeout is not a missing render', () => {
     expect(result.pass).toBe(false);
     expect(result.inconclusive).toBeUndefined();
   });
+
+  it('an absence check that found matching elements is a failure, not a starved miss', async () => {
+    // The polarity invert: throttle distrusts "I did not find it", not "I found 13 of them".
+    const session = new ThrottledSession([], () => ({
+      matched: true,
+      count: 13,
+      elements: [],
+    }));
+    const result = await evaluatePredicate(session, {
+      kind: 'text',
+      contains: 'ProgrammingError',
+      absent: true,
+    });
+    expect(result.pass).toBe(false);
+    expect(result.inconclusive).toBeUndefined();
+    expect(result.observed).toContain('13');
+  });
+
+  it('a wait for absence against present content on a throttled tab is still a failure', async () => {
+    const session = new ThrottledSession([], () => ({
+      matched: true,
+      count: 13,
+      elements: [],
+    }));
+    const result = await waitForPredicate(
+      session,
+      { kind: 'text', contains: 'ProgrammingError', absent: true },
+      80,
+    );
+    expect(result.pass).toBe(false);
+    expect(result.inconclusive).toBeUndefined();
+  });
+
+  it('an absence check that found nothing on a throttled tab stays inconclusive', async () => {
+    // Empty MATCH may mean the tab never rendered. That negative is the case throttle is for.
+    const session = new ThrottledSession([]);
+    const result = await evaluatePredicate(session, {
+      kind: 'text',
+      contains: 'ProgrammingError',
+      absent: true,
+    });
+    expect(result.pass).toBe(true);
+    expect(result.inconclusive).toBe(THROTTLED_STARVED_NOTE);
+  });
 });
 
 /**
