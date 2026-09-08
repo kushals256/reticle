@@ -1,8 +1,11 @@
 import {
   EventType,
   REDACTED_VALUE,
+  URL_RAW,
   defaultIsSensitiveKey,
+  netUrlFields,
   scrubKnownSecrets,
+  urlForMatch,
   type RedactionPolicy,
   type ReticleEvent,
 } from '@reticlehq/core';
@@ -19,7 +22,23 @@ import { drivenRedactionPolicy } from './driven-redaction.js';
  */
 
 export interface NetworkDetail {
+  /**
+   * The URL as the agent reads it, redacted by the same rule the in-page observer applies.
+   *
+   * It arrives raw from the driver, exactly like the headers and the request body below, and it
+   * carries credentials just as routinely: a presigned upload, an OAuth callback, a single-use reset
+   * link. Redacting the other two and not this one left the one field nobody had to parse to read.
+   */
   url: string;
+  /**
+   * The URL before redaction, present only when redaction rewrote it.
+   *
+   * The grader-only match haystack, the same field and the same contract as on a NET_REQUEST: it is
+   * how `urlContains` still matches a public path segment the heuristic rewrote, and how the merge
+   * below pairs this detail with the request the SDK reported. `withoutUrlRaw` strips it before any
+   * event is rendered to an agent.
+   */
+  [URL_RAW]?: string;
   method?: string;
   status: number;
   headers: Record<string, string>;
@@ -34,6 +53,15 @@ export interface NetworkDetail {
    * window.fetch frame at all), rewrites requests invisibly. Available on the DRIVE path only.
    */
   requestBody?: string;
+  /**
+   * Present, and only ever `true`, when the bound above cut the captured body short.
+   *
+   * The same field and the same contract the in-page observer already emits. A shortened body an
+   * agent cannot tell apart from a whole one is the false green this project exists to prevent: a
+   * `net` assertion over a payload that was cut reads as an absence of the thing that was cut off.
+   * Omitted when the whole body fits, so the caveat means something when it appears.
+   */
+  requestBodyTruncated?: boolean;
   /**
    * The document that ISSUED the request, which is what identifies the session it belongs to.
    *
@@ -77,8 +105,20 @@ function redactByKey(value: unknown, policy: RedactionPolicy): unknown {
   return value;
 }
 
-function projectWireBody(raw: string, policy: RedactionPolicy): string {
-  const bounded = raw.length > MAX_WIRE_BODY_CHARS ? raw.slice(0, MAX_WIRE_BODY_CHARS) : raw;
+/**
+ * Redact and bound a captured wire body, returning the value AND whether the bound was reached.
+ *
+ * The report is the point. This body is taken raw off the network stack, it is capped, and the cap is
+ * reached by ordinary payloads (a bulk save, a base64 attachment, a rich-text field). Returning the
+ * shortened string alone let a partial capture be read as a whole one, which is the shape the
+ * lossy-transform rule exists to forbid.
+ */
+function projectWireBody(
+  raw: string,
+  policy: RedactionPolicy,
+): { body: string; truncated: boolean } {
+  const truncated = raw.length > MAX_WIRE_BODY_CHARS;
+  const bounded = truncated ? raw.slice(0, MAX_WIRE_BODY_CHARS) : raw;
   const byShape = scrubKnownSecrets(bounded);
   // Prefer a STRUCTURAL pass. A sensitive key must be redacted regardless of its value type — a
   // numeric PIN (`"password": 1234`), a token array, a nested credential object — and the old
@@ -86,19 +126,20 @@ function projectWireBody(raw: string, policy: RedactionPolicy): string {
   // straight to the agent's context and the on-disk journal. Parsing and walking redacts them by key
   // whatever the shape.
   try {
-    return JSON.stringify(redactByKey(JSON.parse(byShape), policy));
+    return { body: JSON.stringify(redactByKey(JSON.parse(byShape), policy)), truncated };
   } catch {
     // Not JSON (a truncated capture, or a form-encoded body — the shape a login form actually POSTs).
     // Two best-effort sweeps, because a password lives in both: the `"key":"string"` JSON fragment a
     // truncated body still contains, and the `key=value` pair of `application/x-www-form-urlencoded`,
     // which neither the JSON path nor the old regex ever touched — so `password=hunter2` leaked.
-    return byShape
+    const body = byShape
       .replace(/"([^"]+)"\s*:\s*"([^"]*)"/g, (whole, key: string) =>
         policy.isSensitiveKey(key) ? `"${key}":"${REDACTED_VALUE}"` : whole,
       )
       .replace(/([^&?=\s]+)=([^&\s]*)/g, (whole, key: string) =>
         policy.isSensitiveKey(key) ? `${key}=${REDACTED_VALUE}` : whole,
       );
+    return { body, truncated };
   }
 }
 
@@ -142,23 +183,38 @@ export function buildNetworkDetail(
   },
   policy: RedactionPolicy = DEFAULT_POLICY,
 ): NetworkDetail {
+  const wireBody =
+    raw.requestBody === undefined || 0 === raw.requestBody.length
+      ? undefined
+      : projectWireBody(raw.requestBody, policy);
   return {
-    url: raw.url,
+    ...netUrlFields(raw.url, policy.isSensitiveKey),
     ...(raw.method === undefined ? {} : { method: raw.method }),
     status: raw.status,
     headers: projectHeaders(raw.headers, policy),
     ...(raw.resourceType === undefined ? {} : { resourceType: raw.resourceType }),
-    ...(raw.requestBody === undefined || 0 === raw.requestBody.length
+    ...(wireBody === undefined
       ? {}
-      : { requestBody: projectWireBody(raw.requestBody, policy) }),
+      : {
+          requestBody: wireBody.body,
+          ...(wireBody.truncated ? { requestBodyTruncated: true } : {}),
+        }),
     ...(raw.pageUrl === undefined || 0 === raw.pageUrl.length ? {} : { pageUrl: raw.pageUrl }),
   };
 }
 
-function keyOf(url: unknown, method: unknown): string {
+/**
+ * The merge key: method plus the RAW url when the observation kept one, else the displayed url.
+ *
+ * Never the displayed url alone. The two sides redact independently, the SDK under the page's own
+ * policy and this module under the daemon's, so the one field they were being compared on is the one
+ * field redaction is allowed to rewrite. Keying on `urlForMatch` compares what was actually
+ * requested, which is identical on both sides by construction.
+ */
+function keyOf(data: Record<string, unknown>): string {
+  const method = data['method'];
   const m = 'string' === typeof method ? method.toUpperCase() : '';
-  const u = 'string' === typeof url ? url : '';
-  return `${m} ${u}`;
+  return `${m} ${urlForMatch(data)}`;
 }
 
 /**
@@ -170,14 +226,13 @@ function keyOf(url: unknown, method: unknown): string {
 export function mergeNetworkDetail(events: readonly ReticleEvent[]): ReticleEvent[] {
   const requestByKey = new Map<string, ReticleEvent>();
   for (const e of events) {
-    if (e.type === EventType.NET_REQUEST)
-      requestByKey.set(keyOf(e.data['url'], e.data['method']), e);
+    if (e.type === EventType.NET_REQUEST) requestByKey.set(keyOf(e.data), e);
   }
   const out: ReticleEvent[] = [];
   const enriched = new Map<ReticleEvent, ReticleEvent>();
   for (const e of events) {
     if (e.type === EventType.NET_DETAIL) {
-      const match = requestByKey.get(keyOf(e.data['url'], e.data['method']));
+      const match = requestByKey.get(keyOf(e.data));
       if (match === undefined) {
         out.push(e); // unmatched detail survives on its own
         continue;
@@ -201,6 +256,12 @@ export function mergeNetworkDetail(events: readonly ReticleEvent[]): ReticleEven
           data['requestBodyDivergedFromPage'] = true;
         }
         data['requestBody'] = wireBody;
+        // The caveat belongs to the body it describes, and this is the one field that REPLACES
+        // rather than fills a gap. Carried over when the wire body was cut, deleted when it was not:
+        // a stale `true` from the page capture would caveat a body that is now whole, and a missing
+        // one would let a cut body read as complete.
+        if (true === e.data['requestBodyTruncated']) data['requestBodyTruncated'] = true;
+        else delete data['requestBodyTruncated'];
       }
       enriched.set(match, { ...base, data });
       continue; // the detail is absorbed into the request

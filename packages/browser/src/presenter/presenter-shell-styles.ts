@@ -3,6 +3,7 @@
  * Split from presenter-styles.ts so the controller stays under the size cap.
  */
 import { LOG_TIME_ATTR } from './presenter-log.js';
+import { Z_HUD_TOOLTIP } from './presenter-config.js';
 import {
   CHAT_ATTR,
   CHAT_PILL_ATTR,
@@ -301,7 +302,7 @@ export const SHELL_CSS = `
 [${HUD}] .reticle-tb-tip{
   position:absolute;bottom:calc(100% + 14px);left:50%;transform:translateX(-50%) scale(.95);
   padding:6px 10px;background:#1a1a1a;color:rgba(255,255,255,.9);font-size:12px;font-weight:500;
-  border-radius:8px;white-space:nowrap;opacity:0;visibility:hidden;pointer-events:none;z-index:3;
+  border-radius:8px;white-space:nowrap;opacity:0;visibility:hidden;pointer-events:none;z-index:${String(Z_HUD_TOOLTIP)};
   box-shadow:0 2px 8px rgba(0,0,0,.3);transition:opacity .135s ease,transform .135s ease,visibility .135s;}
 [${HUD}] .reticle-tb-tip::after{
   content:"";position:absolute;top:calc(100% - 4px);left:50%;transform:translateX(-50%) rotate(45deg);
@@ -318,8 +319,19 @@ export const SHELL_CSS = `
   padding:2px 6px;border-radius:999px;white-space:nowrap;pointer-events:none;z-index:2;
   transition:opacity .12s ease;}
 [${OVERLAY}][${STATE}="paused"] [data-reticle-badge]{display:inline-flex;}
+/**
+ * The mode, ON the status row rather than under it.
+ *
+ * The action text beside it is flex:1, so this claims the right edge of the row and takes its space
+ * from the elided action text. Nothing above or below moves: the panel used to grow and shrink by
+ * the height of this pill on every single tool call, which is what made one status line look like a
+ * second UI appearing and leaving.
+ */
 [${DOCK_ATTR}] .reticle-chip{display:none;flex:none;align-items:center;gap:4px;font-size:8px;font-weight:600;letter-spacing:.06em;
-  padding:3px 7px;border-radius:999px;text-transform:uppercase;background:rgba(255,255,255,.06);}
+  height:16px;padding:0 7px;line-height:1;border-radius:999px;text-transform:uppercase;
+  background:rgba(255,255,255,.06);opacity:0;transition:opacity .12s ease;}
+[${DOCK_ATTR}] .reticle-chip[data-mode="reading"],
+[${DOCK_ATTR}] .reticle-chip[data-mode="acting"]{opacity:1;}
 [${DOCK_ATTR}] .reticle-chip[data-mode="reading"],
 [${DOCK_ATTR}] .reticle-chip[data-mode="acting"]{display:inline-flex;color:var(--reticle-fg);}
 [${DOCK_ATTR}] .reticle-tally[hidden]{display:none;}
@@ -356,6 +368,14 @@ export const SHELL_CSS = `
     0 0 8px color-mix(in srgb,var(--reticle-state) 45%,transparent);}
 [${CHAT_PANEL}] .reticle-act-strip[data-liveness="idle"] .reticle-act-dot{
   animation:reticle-idle-pulse 2.4s ease-in-out infinite;}
+/**
+ * Unreachable: present, and plainly not working.
+ *
+ * Muted rather than alarming. Nothing is broken in the user's app — Reticle simply has nobody to
+ * talk to — and a dev overlay that shouts about its own plumbing is one the user turns off.
+ */
+[${OVERLAY}][${STATE}="unreachable"]{--reticle-state:var(--reticle-faint);}
+[${OVERLAY}][${STATE}="unreachable"] [${CHAT_PANEL}] .reticle-act-dot{animation:none;}
 [${OVERLAY}][${STATE}="paused"] [${CHAT_PANEL}] .reticle-act-dot,
 [${OVERLAY}][${STATE}="ended"] [${CHAT_PANEL}] .reticle-act-dot{animation:none;}
 @keyframes reticle-idle-pulse{0%,100%{opacity:.45;transform:scale(.92)}50%{opacity:1;transform:scale(1)}}

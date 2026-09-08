@@ -48,9 +48,23 @@ describe('storeHints', () => {
     expect(hints[0]).toContain('useStore');
   });
 
-  it('puts TanStack Query first — a stale cache fires no request, so it is the only witness', () => {
-    const hints = storeHints(new Set(['zustand', '@tanstack/react-query']));
-    expect(hints[0]).toContain('tanstackQueryStore');
+  /**
+   * TanStack Query and Redux hand their store to React through a context provider, so the React
+   * adapter finds and registers them on the first commit. A hint for either would be asking the
+   * reader to do work that is already done by the time they read it — and the notice attached to
+   * that hint would then nag about it forever.
+   */
+  it('says nothing about the libraries the running app reveals on its own', () => {
+    expect(storeHints(new Set(['@tanstack/react-query']))).toEqual([]);
+    expect(storeHints(new Set(['redux']))).toEqual([]);
+    expect(storeHints(new Set(['@reduxjs/toolkit']))).toEqual([]);
+  });
+
+  it('still hints the libraries nothing in the running app points at', () => {
+    const hints = storeHints(new Set(['@tanstack/react-query', 'jotai', 'zustand']));
+    expect(hints).toHaveLength(2);
+    expect(hints.join(' ')).toContain('jotaiStore');
+    expect(hints.join(' ')).toContain('useStore');
   });
 
   it('says nothing when the app has no store library we can read', () => {
@@ -128,5 +142,38 @@ describe('scanStores', () => {
     expect(
       scanStores([{ path: 'src/App.tsx', source: 'export const App = () => null;' }], deps),
     ).toEqual([]);
+  });
+});
+
+/**
+ * A scraped testid that still contains an interpolation is a PATTERN, not an id.
+ *
+ * Reported from a monorepo audit: the generated capabilities file listed entries such as
+ * `'${testId}'` and `` 'chip-${group.label}' `` verbatim. The regex excludes only quote characters,
+ * and `$`, `{` and `}` are not quotes, so a template literal is captured whole.
+ *
+ * Nothing in the app will ever carry those as an attribute value, so every one of them is an
+ * advertised handle that cannot be driven — the capabilities block exists to tell an agent what it
+ * CAN act on, and a list that is partly fiction is worse than a shorter true one.
+ */
+describe('scanning testids out of source', () => {
+  it('drops an id that is a whole interpolation', () => {
+    expect(scanTestids(['<div data-testid={`${testId}`} />'])).toEqual([]);
+  });
+
+  it('drops an id that merely CONTAINS an interpolation', () => {
+    expect(scanTestids(['<li data-testid={`chip-${group.label}`} />'])).toEqual([]);
+  });
+
+  it('keeps the literal testids beside a templated one', () => {
+    // The common real file: some static, some generated. The static ones are still drivable.
+    const src =
+      '<a data-testid="nav-home" /><li data-testid={`chip-${x}`} /><b data-testid=\'save\' />';
+    expect(scanTestids([src])).toEqual(['nav-home', 'save']);
+  });
+
+  it('keeps an id with a dollar that is not an interpolation', () => {
+    // `$` alone is legal in an attribute value and appears in real ids (price$, usd$total).
+    expect(scanTestids(['<i data-testid="total$usd" />'])).toEqual(['total$usd']);
   });
 });

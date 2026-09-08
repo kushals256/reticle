@@ -116,6 +116,21 @@ export const RECOVERY = {
     'acted on. Take a reticle_snapshot to see what is actually there (a view may still be ' +
     'rendering, or the control may be named differently), then retry with what it shows. This is ' +
     'a miss, not a Reticle defect: there is nothing to report.',
+  /**
+   * The selector was underspecified, which is the caller's to fix and the same class as a miss.
+   *
+   * It reached the feedback ask for a punctuation reason: the text ends "pass an explicit `ref` from
+   * reticle_query.", and the catch-all excludes a `reticle_*` name followed by `.` so a module path
+   * in a stack trace stays an unanticipated crash. A tool named at the END of a sentence is
+   * indistinguishable from one under that rule, so the whole message fell through and told the
+   * caller their own ambiguous query might be a defect worth a root-cause report.
+   */
+  AMBIGUOUS_TARGET:
+    'The call was valid and the selector matched SEVERAL elements, so nothing was acted on. Acting ' +
+    'on one of them would report a verdict about an element you did not choose, which is the false ' +
+    'green Reticle refuses to produce. The message above names each match: narrow the query with a ' +
+    'role, name, testid or scope, or pass an explicit `ref` from reticle_query. This is an ' +
+    'underspecified selector, not a Reticle defect: there is nothing to report.',
   NO_SUCH_OPTION:
     'That <select> has no option with the value you asked for, and the message above lists the ones ' +
     'it does have. Reticle refuses rather than assigning it: an unmatched value deselects everything, ' +
@@ -162,6 +177,13 @@ export const RECOVERY = {
     'editor keeps its own document model, so writing to the DOM would look right and submit the old ' +
     'content. Drive the same outcome another way (a plain input, a command, a keyboard action) or ' +
     'assert on the result instead of typing it. Known gap, already reported: no need to file it.',
+  HOVER_NEEDS_POINTER:
+    'Hover needs a real pointer: a synthetic mouseover does not apply CSS :hover, and Reticle ' +
+    'refuses rather than reporting the styles as applied. Acquire a tab with ' +
+    'reticle_run { tool: "reticle_lease", action: "acquire", url } — reticle_lease is not ' +
+    'advertised under the default profile, so it is reached through reticle_run, not called ' +
+    'directly — or ask the human to drive with `reticle drive` / RETICLE_CDP_URL. This is a ' +
+    'deliberate refusal, not a defect: there is nothing to report.',
   TOKEN_REQUIRED:
     'The bridge binds beyond localhost and requires a pairing token. Set the same token in the SDK ' +
     'init (@reticlehq/core) and the Reticle server config, then reconnect.',
@@ -226,8 +248,12 @@ const REASON_OF: Record<keyof typeof RECOVERY, RefusalReason> = {
   STALE_REF_AFTER_EDIT: RefusalReason.NO_MATCH,
   NO_SUCH_OPTION: RefusalReason.NO_MATCH,
   TARGET_MISSED: RefusalReason.NO_MATCH,
+  // Target resolution failed to name one element. NO_MATCH rather than BAD_ARGS: the arguments were
+  // well-formed and the query simply did not identify a single node, same as a miss.
+  AMBIGUOUS_TARGET: RefusalReason.NO_MATCH,
   FLOW_STEP_MISSING: RefusalReason.NO_MATCH,
   UNSUPPORTED_SURFACE: RefusalReason.UNSUPPORTED,
+  HOVER_NEEDS_POINTER: RefusalReason.UNSUPPORTED,
   NOT_EDITABLE: RefusalReason.UNSUPPORTED,
   CONFIRM_DANGEROUS: RefusalReason.UNSUPPORTED,
   WRONG_TARGET: RefusalReason.UNSUPPORTED,
@@ -277,6 +303,7 @@ const RULES: readonly { readonly match: RegExp; readonly hint: string }[] = [
   // broken. Order matters: contenteditable and disabled/readonly are `cannot <verb> …` messages too,
   // so they must be tested before the general wrong-target rule.
   { match: /contenteditable/i, hint: RECOVERY.UNSUPPORTED_SURFACE },
+  { match: /cannot hover without a real pointer/i, hint: RECOVERY.HOVER_NEEDS_POINTER },
   { match: /cannot \w+ a (disabled|readonly) </i, hint: RECOVERY.NOT_EDITABLE },
   // Three spellings ship — "action", "native action", "WebMCP tool" — and the rule matched one, so
   // two thirds of the same deliberate refusal still read as a possible defect.
@@ -301,6 +328,12 @@ const RULES: readonly { readonly match: RegExp; readonly hint: string }[] = [
   // agent to re-read arguments that were already correct costs it a turn, and this is the commonest
   // refusal there is.
   { match: /target matched no element/i, hint: RECOVERY.TARGET_MISSED },
+  // Also BEFORE the catch-all, and for the same reason the line above is: the caller's query is the
+  // thing to fix, so the answer must not be "re-read the tool's parameters" or a bug-report nudge.
+  {
+    match: /target matched \d+ elements and an action must not guess/i,
+    hint: RECOVERY.AMBIGUOUS_TARGET,
+  },
   // Authored by Reticle, about the caller's arguments: the message already names the valid answers.
   { match: /^unknown action '/i, hint: RECOVERY.BAD_ARGUMENTS },
   { match: /^unsupported query strategy '/i, hint: RECOVERY.BAD_ARGUMENTS },

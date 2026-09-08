@@ -35,24 +35,37 @@ function fakePool(): {
   let active = 0;
   const released: string[] = [];
   const aliased: [string, string][] = [];
+  const byOrigin = new Map<string, string>();
+  const originOf = (url: string): string | undefined => {
+    try {
+      return new URL(url).origin;
+    } catch {
+      return undefined;
+    }
+  };
   const pool = {
     acquire(url: string, opts: { sessionId?: string } = {}): Promise<Lease> {
       acquired.push({ url, sessionId: opts.sessionId });
       active += 1;
       const sessionId = opts.sessionId ?? 'gen';
+      const origin = originOf(url);
+      if (origin !== undefined) byOrigin.set(origin, sessionId);
       return Promise.resolve({ sessionId, url, release: () => Promise.resolve() });
     },
     release(sessionId: string): Promise<void> {
       released.push(sessionId);
       active = Math.max(0, active - 1);
+      for (const [origin, id] of byOrigin) {
+        if (id === sessionId) byOrigin.delete(origin);
+      }
       return Promise.resolve();
     },
     activeCount: () => active,
     queuedCount: () => 0,
-    leasedSessionIds: () => [],
+    leasedSessionIds: () => [...byOrigin.values()],
     leaseTtlMs: () => 300_000,
-    // Recorded, not stubbed away: the lease tells the pool the other name the lease answers to, and
-    // a double that silently lacked it would let that call be dropped without any test noticing.
+    leaseIdOnOrigin: (origin: string) => byOrigin.get(origin),
+    touch: () => undefined,
     alias: (registeredId: string, leaseId: string) => {
       aliased.push([registeredId, leaseId]);
     },
@@ -191,6 +204,132 @@ describe('reticle_lease_acquire', () => {
     expect(acquired[0]?.sessionId).toBe(result.sessionId);
   });
 
+  it('reuses a live lease on the same origin rather than minting a second tab', async () => {
+    // The reported case: acquire, the page needs a reload, acquire again. A second context
+    // leaves both tabs connected and every later tool requires sessionId.
+    const { pool, acquired } = fakePool();
+    const first = (await tool(ReticleTool.LEASE_ACQUIRE)(
+      { ...baseDeps, pool },
+      { url: 'http://localhost:3000/dashboard' },
+    )) as { sessionId: string; reused?: boolean };
+    const second = (await tool(ReticleTool.LEASE_ACQUIRE)(
+      { ...baseDeps, pool },
+      { url: 'http://localhost:3000/settings' },
+    )) as { sessionId: string; reused?: boolean; hint?: string; leased: number };
+
+    expect(second.sessionId).toBe(first.sessionId);
+    expect(second.reused).toBe(true);
+    expect(second.leased).toBe(1);
+    expect(second.hint).toMatch(/already hold a lease on this origin/);
+    expect(second.hint).toContain(first.sessionId);
+    expect(acquired).toHaveLength(1);
+  });
+
+  it('mints a second lease when the first is on a different origin', async () => {
+    const { pool, acquired } = fakePool();
+    const first = (await tool(ReticleTool.LEASE_ACQUIRE)(
+      { ...baseDeps, pool },
+      { url: 'http://localhost:3000/' },
+    )) as { sessionId: string };
+    const second = (await tool(ReticleTool.LEASE_ACQUIRE)(
+      { ...baseDeps, pool },
+      { url: 'http://localhost:3001/' },
+    )) as { sessionId: string; reused?: boolean };
+
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(second.reused).toBeUndefined();
+    expect(acquired).toHaveLength(2);
+    expect(pool.activeCount()).toBe(2);
+  });
+
+  it('releases a dead lease on this origin and mints a fresh one', async () => {
+    const { pool, acquired } = fakePool();
+    const first = (await tool(ReticleTool.LEASE_ACQUIRE)(
+      { ...baseDeps, pool },
+      { url: 'http://localhost:3000/' },
+    )) as { sessionId: string };
+    const sessions = {
+      get: (id: string) => (id === first.sessionId ? undefined : { id }),
+      // Genuinely dead: no session anywhere is driving that leased tab. `all` is present because
+      // the real sessions registry always has it, and resolving the lease now consults it.
+      all: () => [],
+    };
+
+    const second = (await tool(ReticleTool.LEASE_ACQUIRE)(
+      { ...baseDeps, pool, sessions } as unknown as ToolDeps,
+      { url: 'http://localhost:3000/' },
+    )) as { sessionId: string; reused?: boolean };
+
+    expect(second.sessionId).not.toBe(first.sessionId);
+    expect(second.reused).toBeUndefined();
+    expect(acquired).toHaveLength(2);
+    expect(pool.activeCount()).toBe(1);
+  });
+
+  it('reuses a live lease whose app registered under its own name', async () => {
+    // The asymmetry: the MINT path resolves the id through `resolveLeasedSessionId` — because "an
+    // app that names its own session registers under that name, and the id we hand back has to be
+    // the one the agent can actually drive" — and the reuse branch looked the lease id up directly
+    // instead. The two paths disagreed about what a session id is.
+    //
+    // It bites when the first acquire returned `ready: false`: the mint path only aliases when its
+    // wait resolved, so nothing records the app's own name. If the app connects a moment later,
+    // `leaseIdOnOrigin` hands back the raw lease id, the direct lookup misses, and a LIVE lease is
+    // released to mint a second context — the tab-poisoning this branch exists to prevent.
+    const { pool, acquired } = fakePool();
+    const first = (await tool(ReticleTool.LEASE_ACQUIRE)(
+      { ...baseDeps, pool },
+      { url: 'http://localhost:3000/' },
+    )) as { sessionId: string };
+    const appNamed = {
+      id: 'my-app',
+      url: `http://localhost:3000/?${RETICLE_URL_PARAM.SESSION}=${first.sessionId}`,
+    };
+    const sessions = {
+      get: (id: string) => (id === appNamed.id ? appNamed : undefined),
+      all: () => [appNamed],
+    };
+
+    const second = (await tool(ReticleTool.LEASE_ACQUIRE)(
+      { ...baseDeps, pool, sessions } as unknown as ToolDeps,
+      { url: 'http://localhost:3000/checkout' },
+    )) as { sessionId: string; reused?: boolean; leased: number };
+
+    // The id handed back is the one the agent can drive, as on the mint path.
+    expect(second.sessionId).toBe(appNamed.id);
+    expect(second.reused).toBe(true);
+    // The live lease was kept: no second context, and the slot count did not move.
+    expect(acquired).toHaveLength(1);
+    expect(second.leased).toBe(1);
+    expect(pool.activeCount()).toBe(1);
+  });
+
+  it('tells the pool the other name a reused lease answers to', async () => {
+    // Half a fix without this. Every later touch and release arrives under the id just handed back;
+    // the pool is keyed by the id it navigated with, so without the alias the touches miss, the
+    // lease ages out despite continuous activity, and the reaper closes the context mid-flow.
+    const { pool, acquired, aliased } = fakePool();
+    const first = (await tool(ReticleTool.LEASE_ACQUIRE)(
+      { ...baseDeps, pool },
+      { url: 'http://localhost:3000/' },
+    )) as { sessionId: string };
+    const appNamed = {
+      id: 'my-app',
+      url: `http://localhost:3000/?${RETICLE_URL_PARAM.SESSION}=${first.sessionId}`,
+    };
+    const sessions = {
+      get: (id: string) => (id === appNamed.id ? appNamed : undefined),
+      all: () => [appNamed],
+    };
+
+    await tool(ReticleTool.LEASE_ACQUIRE)({ ...baseDeps, pool, sessions } as unknown as ToolDeps, {
+      url: 'http://localhost:3000/',
+    });
+
+    expect(aliased).toContainEqual([appNamed.id, first.sessionId]);
+    expect(acquired).toHaveLength(1);
+  });
+
   it('returns expiresInMs so the agent knows when the lease will die', async () => {
     const { pool } = fakePool();
     const result = (await tool(ReticleTool.LEASE_ACQUIRE)(
@@ -198,6 +337,21 @@ describe('reticle_lease_acquire', () => {
       { url: 'http://localhost:3000/' },
     )) as { expiresInMs: number };
     expect(result.expiresInMs).toBe(300_000);
+  });
+
+  it('carries versionSkew on a ready lease whose tab is skewed (#688)', async () => {
+    const SKEW = 'version skew: the page is 2.2.1; this daemon is 2.4.1. run reticle update';
+    const { pool } = fakePool();
+    const sessions = {
+      get: () => ({ id: 'live', versionSkew: SKEW }),
+      all: () => [],
+    };
+    const result = (await tool(ReticleTool.LEASE_ACQUIRE)(
+      { sessions, pool } as unknown as ToolDeps,
+      { url: 'http://localhost:3000/' },
+    )) as { ready: boolean; versionSkew?: string };
+    expect(result.ready).toBe(true);
+    expect(result.versionSkew).toBe(SKEW);
   });
 
   it('throws a clear error when no pool is available', async () => {
@@ -219,7 +373,7 @@ describe('reticle_lease_release', () => {
     const acq = (await tool(ReticleTool.LEASE_ACQUIRE)(
       { ...baseDeps, pool },
       {
-        url: 'http://localhost:3000/',
+        url: 'http://localhost:3001/',
       },
     )) as { sessionId: string };
     expect(pool.activeCount()).toBe(2);
@@ -239,5 +393,134 @@ describe('reticle_lease_release', () => {
     await expect(
       tool(ReticleTool.LEASE_RELEASE)(baseDeps, { sessionId: 'lease-x' }),
     ).rejects.toThrow(/pool unavailable/i);
+  });
+});
+
+describe('telling the human that the agent went somewhere invisible', () => {
+  /**
+   * Sessions stub with a watcher tab and a leased one, recording every narration posted.
+   *
+   * The selector is unit-tested next door; what is proved HERE is the wiring — that acquire and
+   * release actually reach `pushNarration`. The reported bug was fifteen invisible tool calls, and a
+   * correct selector nobody called would reproduce it exactly.
+   */
+  function depsWithWatcher(leasedIds: string[]): {
+    deps: ToolDeps;
+    narrations: { id: string; text: string }[];
+  } {
+    const narrations: { id: string; text: string }[] = [];
+    const make = (id: string, projectId: string): unknown => ({
+      id,
+      projectId,
+      pushNarration: (text: string) => narrations.push({ id, text }),
+    });
+    const watcher = make('s-human', 'acme');
+    const leased = make('lease-1', 'acme');
+    const { pool } = fakePool();
+    const deps = {
+      sessions: {
+        all: () => [watcher, leased],
+        get: (id: string) => ('s-human' === id ? watcher : leased),
+      },
+      pool: { ...pool, leasedSessionIds: () => leasedIds },
+    } as unknown as ToolDeps;
+    return { deps, narrations };
+  }
+
+  it("narrates into the human's tab on acquire, and not into the leased one", async () => {
+    const { deps, narrations } = depsWithWatcher(['lease-1']);
+    await tool(ReticleTool.LEASE_ACQUIRE)(deps, {
+      url: 'http://localhost:3000/',
+      projectId: 'acme',
+    });
+    expect(narrations.map((n) => n.id)).toEqual(['s-human']);
+    expect(narrations[0]?.text).toContain('will not appear in this tab');
+  });
+
+  it('tells the tab it is live again once the LAST lease is released', async () => {
+    const { deps, narrations } = depsWithWatcher(['lease-1']);
+    await tool(ReticleTool.LEASE_RELEASE)(deps, { sessionId: 'lease-1' });
+    expect(narrations.map((n) => n.text).join()).toContain('live again');
+  });
+
+  it('a narration that throws cannot fail the lease', async () => {
+    // A courtesy to a person must never turn a working lease into a reported failure.
+    const { pool } = fakePool();
+    const deps = {
+      sessions: {
+        all: () => [{ id: 's-human', projectId: 'acme' }],
+        get: () => ({
+          id: 's-human',
+          pushNarration: () => {
+            throw new Error('socket gone');
+          },
+        }),
+      },
+      pool,
+    } as unknown as ToolDeps;
+    const out = (await tool(ReticleTool.LEASE_ACQUIRE)(deps, {
+      url: 'http://localhost:3000/',
+    })) as Record<string, unknown>;
+    expect(out['sessionId']).toBeDefined();
+  });
+});
+
+describe('prioritising a tab that is already open', () => {
+  it('names the live non-leased tab so the agent can switch to the one a human can see', async () => {
+    // Informing after the fact is not prioritising. The agent is told AT THE POINT OF CHOICE that a
+    // visible tab already exists, because that is the only moment the choice is still open.
+    const narrations: string[] = [];
+    const watcher = {
+      id: 's-human',
+      projectId: 'acme',
+      pushNarration: (t: string) => narrations.push(t),
+    };
+    const { pool } = fakePool();
+    const deps = {
+      sessions: { all: () => [watcher], get: () => watcher },
+      pool,
+    } as unknown as ToolDeps;
+
+    const out = (await tool(ReticleTool.LEASE_ACQUIRE)(deps, {
+      url: 'http://localhost:3000/',
+      projectId: 'acme',
+    })) as Record<string, unknown>;
+
+    const prefer = out['preferExisting'] as { sessionId: string; note: string } | undefined;
+    expect(prefer?.sessionId).toBe('s-human');
+    expect(prefer?.note).toContain('release this lease');
+  });
+
+  it('stays silent when no tab was open — a lease is simply correct then', async () => {
+    const { pool } = fakePool();
+    const deps = {
+      sessions: { all: () => [], get: () => ({ id: 'live' }) },
+      pool,
+    } as unknown as ToolDeps;
+
+    const out = (await tool(ReticleTool.LEASE_ACQUIRE)(deps, {
+      url: 'http://localhost:3000/',
+      projectId: 'acme',
+    })) as Record<string, unknown>;
+
+    expect('preferExisting' in out).toBe(false);
+  });
+
+  it('never REFUSES the lease — isolation is a legitimate need', async () => {
+    // The fix must not break agents that genuinely want a clean context. It steers; it does not veto.
+    const watcher = { id: 's-human', projectId: 'acme', pushNarration: () => undefined };
+    const { pool } = fakePool();
+    const deps = {
+      sessions: { all: () => [watcher], get: () => watcher },
+      pool,
+    } as unknown as ToolDeps;
+
+    const out = (await tool(ReticleTool.LEASE_ACQUIRE)(deps, {
+      url: 'http://localhost:3000/',
+      projectId: 'acme',
+    })) as Record<string, unknown>;
+
+    expect(out['sessionId']).toBeDefined();
+    expect(out['url']).toBe('http://localhost:3000/');
   });
 });

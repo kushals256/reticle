@@ -90,10 +90,21 @@ export const REPORT_CSS = `
 [${REPORT_PANEL_ATTR}] .reticle-report-defect-source{
   color:var(--reticle-faint);font-size:9.5px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
   overflow-wrap:anywhere;}
+.reticle-report-defect-link{flex:none;display:inline-flex;align-items:center;justify-content:center;
+  width:20px;height:20px;border-radius:6px;color:var(--reticle-faint);pointer-events:auto;
+  opacity:0;transition:opacity .12s ease,color .12s ease,background .12s ease;}
+.reticle-report-defect:hover .reticle-report-defect-link,
+.reticle-report-defect-link:focus-visible{opacity:1;}
+.reticle-report-defect-link:hover{color:var(--reticle-fg);background:rgba(255,255,255,.07);}
 [${REPORT_PANEL_ATTR}] .reticle-report-defects-more{
   display:inline-block;margin-top:8px;font-size:10px;color:var(--reticle-c-active);
   text-decoration:none;}
 [${REPORT_PANEL_ATTR}] .reticle-report-defects-more:hover{text-decoration:underline;}
+[${REPORT_PANEL_ATTR}] .reticle-report-local-only{
+  margin:14px 0 0;padding-top:10px;border-top:1px solid var(--reticle-line);
+  color:var(--reticle-faint);font-size:10px;line-height:1.45;}
+[${REPORT_PANEL_ATTR}] .reticle-report-local-only code{
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--reticle-c-active);}
 [${REPORT_PANEL_ATTR}] .reticle-report-chart-wrap{margin-top:12px;}
 [${REPORT_PANEL_ATTR}] .reticle-report-section{
   display:block;margin-bottom:6px;color:var(--reticle-faint);font-size:9.5px;

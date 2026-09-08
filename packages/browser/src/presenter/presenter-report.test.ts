@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { emptyImpactCounts, emptyImpactRecords, estimateImpactSavings } from '@reticlehq/core';
+import {
+  emptyImpactCounts,
+  emptyImpactRecords,
+  estimateImpactSavings,
+  IMPACT_BASIS,
+} from '@reticlehq/core';
 import type { ImpactDefect, ImpactScope, ImpactSnapshot } from '@reticlehq/core';
 import { PresenterReport, reportBodyHtml, reportPanelHtml } from './presenter-report.js';
 import {
@@ -32,11 +37,14 @@ const defect = (over: Partial<ImpactDefect> = {}): ImpactDefect => ({
 });
 
 describe('the impact report', () => {
-  it('leads with defects caught and shows unknowns rather than hiding them', () => {
+  it('leads with what it refused to pass, and shows unknowns rather than hiding them', () => {
     const html = reportBodyHtml(
       scope({ calls: 40, verdicts: 12, passed: 9, failed: 2, unknown: 1 }),
     );
-    expect(html).toContain('defects caught');
+    // Not "defects caught": a failed verdict is equally the shape of a wrong assertion, and a
+    // verification tool must not overclaim in that direction. What is true of both is that Reticle
+    // refused to pass them.
+    expect(html).toContain('refused to pass');
     expect(html).toContain('unknown');
   });
 
@@ -47,12 +55,53 @@ describe('the impact report', () => {
   it('labels every estimate and keeps its basis on the element', () => {
     const html = reportBodyHtml(scope({ calls: 10, verdicts: 6, failed: 2, tokensReturned: 500 }));
     expect(html).toContain('estimate');
-    expect(html).toContain('vs an agent reading the app through screenshots');
-    expect(html).toContain('vs one re-prompt cycle per defect caught');
+    // Asserted against the CONSTANT, not a copy of its wording. The basis text lives in one place
+    // (impact-savings.ts) precisely so a claim cannot be changed in one half of the codebase; a test
+    // that restates it turns that single source into two, and this one went red for saying the old
+    // words rather than for the report dropping a denominator.
+    expect(html).toContain(IMPACT_BASIS.TOKENS);
+    expect(html).toContain(IMPACT_BASIS.MINUTES);
   });
 
   it('says nothing at all before anything has been recorded', () => {
     expect(reportBodyHtml(scope())).toContain('Nothing recorded yet');
+  });
+});
+
+/**
+ * The only place the product tells an unlinked user a dashboard exists.
+ *
+ * Before this, every dashboard mention in the HUD was gated on `dashboardUrl`, which is read from a
+ * repo's cloud.json — so the person who had never linked, the only one who needed telling, was the
+ * one person never told. The rest of these tests exist because the fix for that is one line away
+ * from being a nag, and a nag in a verification tool costs more trust than the conversion is worth.
+ */
+describe('what an UNLINKED user is told about the dashboard', () => {
+  const withVerdicts = scope({ calls: 40, verdicts: 12, passed: 9, failed: 2, unknown: 1 });
+
+  it('names the one command, once, when there is a record worth keeping', () => {
+    // The account state is now REQUIRED to say this. Without it the machine's status is unknown,
+    // and an unknown must not be read as signed-out — see the account-state tests beside this file.
+    const html = reportBodyHtml(withVerdicts, undefined, { signedIn: false });
+    expect(html).toContain('This record stops at this machine.');
+    expect(html).toContain('reticle login');
+    // Once. A second mention in the same panel is where a line becomes a nag.
+    expect(html.split('reticle login').length - 1).toBe(1);
+  });
+
+  it('goes silent the moment the repo is linked', () => {
+    // A linked user is already reporting; telling them to log in is noise that reads as a bug.
+    const html = reportBodyHtml(withVerdicts, 'https://app.reticle.sh/o/acme');
+    expect(html).not.toContain('This record stops at this machine.');
+  });
+
+  it('offers nothing when there is nothing yet to keep', () => {
+    // Gated on a VERDICT, not on tool calls: somebody who has driven the app but proved nothing has
+    // not yet received the thing this offers to preserve, and an offer to keep nothing is an advert.
+    expect(reportBodyHtml(scope({ calls: 40 }))).not.toContain(
+      'This record stops at this machine.',
+    );
+    expect(reportBodyHtml(scope())).not.toContain('This record stops at this machine.');
   });
 });
 
@@ -67,7 +116,7 @@ describe('the share text', () => {
   it('leads with verdicts and defects, and never carries an estimate', () => {
     const text = buildShareText(scope({ verdicts: 217, failed: 9, unknown: 14 }), 'checkout-app');
     expect(text).toContain('217');
-    expect(text).toContain('9 defects');
+    expect(text).toContain('9 checks it refused to pass');
     expect(text).toContain('unknown');
     expect(text).toContain('checkout-app');
     expect(text).not.toMatch(/saved|estimate/i);
@@ -132,7 +181,9 @@ describe('the pushed impact record reaches the panel', () => {
     const btn = document.querySelector('[data-reticle-report-btn]');
     (btn as HTMLElement | null)?.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const body = document.querySelector('[data-reticle-report-body]');
-    expect(body?.textContent, 'the pushed record is what the panel shows').toContain('defects');
+    expect(body?.textContent, 'the pushed record is what the panel shows').toContain(
+      'refused to pass',
+    );
     expect(body?.textContent).toContain('1');
     p.destroy();
   });

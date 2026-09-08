@@ -240,6 +240,9 @@ export class Reticle {
   #eventCount = 0;
   #token: string | undefined;
   #sdkVersion: string | undefined;
+  /** Whether this page records network bodies — announced in HELLO so a body clause can be refused
+   * before an action is spent on it. See messages.ts. */
+  #captureBodies = false;
   #projectId: string | undefined;
   /** App-declared extra redaction keys, announced in hello so the driven path honours them too. */
   #redactKeys: string[] = [];
@@ -344,6 +347,10 @@ export class Reticle {
       // page observed rather than guessing at the daemon, which it cannot see from in here.
       onUnreachable: ({ url: tried, attempts }) => {
         nativeWarn(unreachableMessage(tried, attempts));
+        // And on screen, not only in a console nobody has open. An instrumented page with a dead
+        // bridge looked exactly like a page with no Reticle in it, so the user could not tell a
+        // daemon they forgot to start from an install that did not work.
+        this.#presenter?.showUnreachable(tried, attempts);
       },
     });
 
@@ -356,9 +363,8 @@ export class Reticle {
     setPresenterVisible(true === options.exposePresenter);
 
     const emit = this.#emit;
-    this.#teardowns = installAllObservers(emit, {
-      captureBodies: true === options.captureNetworkBodies,
-    });
+    this.#captureBodies = true === options.captureNetworkBodies;
+    this.#teardowns = installAllObservers(emit, { captureBodies: this.#captureBodies });
 
     if (true === options.overlay) {
       this.#overlay = installOverlay();
@@ -532,6 +538,8 @@ export class Reticle {
       adapters: adapterNames(),
       ...(this.#token === undefined ? {} : { token: this.#token }),
       hasCapabilities: hasCapabilities(),
+      // Announced so a body-reading assertion can be refused before an action is spent on it.
+      captureBodies: this.#captureBodies,
       // Absent when no build plugin supplied one - "unknown", never "matching".
       ...(this.#sdkVersion === undefined ? {} : { sdkVersion: this.#sdkVersion }),
       // Always present: derived from THIS build's core, so it needs no build plugin to supply it.

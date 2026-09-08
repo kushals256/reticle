@@ -17,6 +17,7 @@ import {
   asString,
   sourceOf,
 } from '../tools/tools-helpers.js';
+import { isSessionReplacedError } from '../session/session-replaced.js';
 import { ReticleTool } from '../tools/tool-names.js';
 import { findContradictions } from '../events/contradictions.js';
 
@@ -34,6 +35,9 @@ export interface CrawlSession {
   /** Which round of source edits is in force, so a finding drawn entirely from pre-edit evidence
    *  says so. Optional for the same reason `currentDocumentId` is. */
   readonly currentEditEpoch?: number | undefined;
+  /** The page under test, so a third-party beacon cannot be reported against a control. Optional
+   *  for the same reason `currentDocumentId` is. */
+  readonly url?: string | undefined;
   /**
    * Attribution window around each click. Optional so a caller can supply a minimal session, but a real
    * session MUST provide it: without a window the click's own effects carry no actionId, and an
@@ -282,6 +286,18 @@ export async function crawl(
     const since = session.elapsed();
     session.beginAction?.(ReticleTool.CRAWL, { ref: item.ref, action: ActionType.CLICK });
     let act;
+    /*
+     * A full page load reconnects the SDK, which rejects whatever command was in flight.
+     *
+     * On a server-rendered app that is what following a link DOES — every navigation replaces the
+     * session — so the rejection is evidence the click worked, not that it failed. Crawl used to let
+     * it propagate and died on link one of every Django, Rails or plain-HTML app.
+     *
+     * Recorded as a navigation rather than swallowed: a control that took the page somewhere is the
+     * opposite of a dead one, and reporting it as dead would be the false negative crawl exists to
+     * find.
+     */
+    let navigatedAway = false;
     try {
       // One span per control clicked, so a slow crawl names the control rather than reporting a
       // single multi-second total. The settle sleep below is INSIDE it deliberately: it is part of
@@ -295,6 +311,9 @@ export async function crawl(
         await sleep(settleMs);
         return clicked;
       });
+    } catch (err) {
+      if (!isSessionReplacedError(err)) throw err;
+      navigatedAway = true;
     } finally {
       // Close on every exit so a throw cannot leak the window onto the next control's events.
       session.finishAction?.();
@@ -337,6 +356,11 @@ export async function crawl(
     for (const c of findContradictions(events, {
       currentDocumentId: session.currentDocumentId,
       currentEditEpoch: session.currentEditEpoch,
+      appOrigin: session.url,
+      // The crawl's window IS one control's click, so it can name the floor the consequence rules
+      // need — without it a crawl would report nothing about the UI moving, which is most of what a
+      // crawl is for.
+      actionSince: since,
     })) {
       counts.contradictions += 1;
       anomalies.push({
@@ -359,8 +383,12 @@ export async function crawl(
     // Deliberately NOT fixed by counting focus as activity: focus moving is not the app reacting, and
     // treating it as such would make a genuinely dead button that takes focus look alive — trading
     // noise for the false negative this check exists to catch.
-    const dispatched = asRecord(act.result)['dispatched'] !== false && act.ok;
+    const dispatched = asRecord(act?.result)['dispatched'] !== false && true === act?.ok;
     if (
+      // A control that took the page somewhere is the OPPOSITE of a dead one. Without this, every
+      // link on a server-rendered app would be reported as an anomaly by the check that exists to
+      // find controls which do nothing.
+      !navigatedAway &&
       dispatched &&
       0 === errs.length &&
       !events.some(isActivity) &&

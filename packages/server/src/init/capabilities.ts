@@ -18,13 +18,32 @@ const TESTID_ATTR = /data-testid\s*=\s*[{]?\s*["'`]([^"'`]+)["'`]/g;
 /** Cap the generated list. A capabilities block is a hint for an agent, not an inventory. */
 export const MAX_TESTIDS = 60;
 
+/**
+ * An unresolved template interpolation, anywhere in a captured value.
+ *
+ * The attribute regex excludes quote characters and nothing else, so `data-testid={`chip-${x}`}`
+ * captures `chip-${x}` whole. Reported from a monorepo audit, where the generated capabilities file
+ * listed `'${testId}'` and `` 'chip-${group.label}' `` verbatim.
+ *
+ * Nothing in the running app ever carries those as an attribute value, so each one is an advertised
+ * handle that cannot be driven. The capabilities block exists to tell an agent what it CAN act on,
+ * and a list that is partly fiction is worse than a shorter true one — an agent that tries three
+ * imaginary testids learns to distrust the whole block.
+ *
+ * A bare `$` is fine and stays: it is legal in an attribute value and appears in real ids
+ * (`total$usd`). Only `${` is evidence of an interpolation that was never resolved.
+ */
+const UNRESOLVED_INTERPOLATION = '${';
+
 /** Every distinct `data-testid` literal in the given sources, in first-seen order. */
 export function scanTestids(sources: readonly string[]): string[] {
   const found = new Set<string>();
   for (const src of sources) {
     for (const m of src.matchAll(TESTID_ATTR)) {
       const id = m[1];
-      if (id !== undefined && id.length > 0) found.add(id);
+      if (id !== undefined && id.length > 0 && !id.includes(UNRESOLVED_INTERPOLATION)) {
+        found.add(id);
+      }
       if (found.size >= MAX_TESTIDS) return [...found];
     }
   }
@@ -53,9 +72,32 @@ const STORE_LIBRARIES: readonly (readonly [dep: string, hint: string])[] = [
   ['svelte', "registerStore('cart', svelteStore(cartStore))"],
 ];
 
-/** The store libraries this app depends on, as ready-to-uncomment registration lines. */
+/**
+ * Libraries that hand their store to React through a context provider, and therefore need no hint.
+ *
+ * `<Provider store>` and `<QueryClientProvider client>` put the store instance in the fiber tree as
+ * a prop, so the React adapter finds and registers it on the first commit — see `auto-stores.ts` in
+ * `@reticlehq/react`. Offering a commented `registerStore` line for these was asking someone to do
+ * by hand, and be nagged about, work that is already done by the time they read the report.
+ *
+ * Everything absent from this set is module-scope (Zustand, Valtio, a MobX singleton) or needs an
+ * argument only the source supplies (Jotai atoms, an XState actor). Nothing in the running app
+ * points at those, so they still need the app to hand them over, and the hint still earns its place.
+ */
+const AUTO_DISCOVERED_DEPS: ReadonlySet<string> = new Set([
+  '@tanstack/react-query',
+  '@reduxjs/toolkit',
+  'redux',
+]);
+
+/**
+ * The store libraries this app depends on AND the running app cannot reveal on its own, as
+ * ready-to-uncomment registration lines.
+ */
 export function storeHints(deps: ReadonlySet<string>): string[] {
-  return STORE_LIBRARIES.filter(([dep]) => deps.has(dep)).map(([, hint]) => hint);
+  return STORE_LIBRARIES.filter(([dep]) => deps.has(dep) && !AUTO_DISCOVERED_DEPS.has(dep)).map(
+    ([, hint]) => hint,
+  );
 }
 
 /** A store instance we found in the app's own source, with everything needed to import and register it. */

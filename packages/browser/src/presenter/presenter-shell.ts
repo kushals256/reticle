@@ -42,7 +42,7 @@ const REPORT_LABEL = 'Impact';
 const SETTINGS_LABEL = 'Settings';
 const EXIT_LABEL = 'Exit';
 
-export interface HudShellCallbacks {
+interface HudShellCallbacks {
   onChatOpen?: () => void;
   onChatClose?: () => void;
   onExpand?: () => void;
@@ -125,14 +125,13 @@ export class HudShell {
     const gear = hiToggleIconHtml(PresenterIcon.GEAR, PRESENTER_ICON_SIZE.TOOLBAR);
     const exit = hiIconHtml(PresenterIcon.REMOVE, PRESENTER_ICON_SIZE.TOOLBAR);
     return `<div ${DOCK_ATTR}>
-      <div ${CHAT_PANEL_ATTR} class="reticle-chat-panel ${HUD_SURFACE_CLASS}" role="dialog" aria-label="Reticle agent chat" aria-hidden="true">
+      <div ${CHAT_PANEL_ATTR} class="reticle-chat-panel ${HUD_SURFACE_CLASS}" role="dialog" aria-label="Reticle session" aria-hidden="true">
         <div class="reticle-chat-head">
           <span class="reticle-chat-brand">${MARK_SVG}<span class="reticle-chat-brandname">${BRAND_NAME}</span></span>
         </div>
         <button type="button" ${CHAT_MIN_ATTR} class="reticle-chat-min" title="${CHAT_MIN_LABEL}" aria-label="${CHAT_MIN_LABEL}">${hiIconHtml(PresenterIcon.CARET_DOWN, PRESENTER_ICON_SIZE.TOOLBAR)}</button>
         ${actStripHtml}
         <span class="reticle-tally" data-reticle-tally hidden></span>
-        <span class="reticle-chip" data-reticle-chip></span>
         ${bannerHtml}
         <div class="${HUD_LOG_WELL_CLASS}"><div ${logAttr}></div></div>
         ${flowsHtml}
@@ -386,10 +385,6 @@ export class HudShell {
     this.#chatToggle?.setAttribute('aria-pressed', 'true');
     this.#callbacks.onChatOpen?.();
     if (this.#dock !== undefined) scheduleSyncDockLayout(this.#dock, this.#root);
-    const input = this.#root.querySelector<HTMLTextAreaElement>('[data-reticle-input]');
-    if (input !== null && !input.disabled) {
-      requestAnimationFrame(() => input.focus());
-    }
   }
   closeChat(): void {
     if (this.#root === undefined || !this.isChatOpen()) return;

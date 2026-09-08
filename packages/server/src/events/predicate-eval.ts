@@ -9,6 +9,7 @@ import {
 } from '@reticlehq/core';
 import { describeObserved } from './observed-in-window.js';
 import { withoutUrlRaw } from './event-filters.js';
+export { evalConsole } from './predicate-console.js';
 import type { Predicate } from './predicate-schema.js';
 
 // The predicate SHAPE — the discriminated union, its aliases and its zod schema — lives in
@@ -333,6 +334,47 @@ const DOCUMENT_ONLY_SUFFIXES: readonly string[] = [
 ];
 
 /**
+ * File suffixes a click typically downloads or navigates to as a document, never as fetch/XHR.
+ *
+ * Sibling of DOCUMENT_ONLY_SUFFIXES, not a member of it. Those are subresources: once resource
+ * timing is live, a miss is evidence. A click on `<a href="/export.pdf">` is a navigation (or a
+ * Content-Disposition attachment). Resource timing of stylesheets does not make it visible, so
+ * grading the miss as "0 network calls" / a 404 is the lie #805 exists to stop — even on a page
+ * whose observer is running. `.js` / `.json` stay off this list for the same reason they stay off
+ * the other: they are routinely fetched.
+ */
+const NATIVE_DOWNLOAD_SUFFIXES: readonly string[] = [
+  '.pdf',
+  '.csv',
+  '.tsv',
+  '.zip',
+  '.gz',
+  '.tar',
+  '.xlsx',
+  '.xls',
+  '.docx',
+  '.doc',
+  '.pptx',
+  '.ppt',
+  '.ods',
+  '.odt',
+  '.rtf',
+  '.7z',
+  '.rar',
+];
+
+/**
+ * Does this filter target a class of request the observer cannot see?
+ *
+ * Read off `urlContains` only, and only when the pattern ENDS in one of the suffixes — a filter of
+ * `/api/` that happens to contain `.css` somewhere in a query string is still an ordinary XHR
+ * target. Query strings and fragments are stripped first, since `favicon.ico?v=2` is the same asset.
+ */
+function filterPath(urlContains: string): string {
+  return (urlContains.split('#')[0] ?? '').split('?')[0]?.toLowerCase() ?? '';
+}
+
+/**
  * Does this filter target a class of request the observer cannot see?
  *
  * Read off `urlContains` only, and only when the pattern ENDS in one of the suffixes — a filter of
@@ -342,9 +384,41 @@ const DOCUMENT_ONLY_SUFFIXES: readonly string[] = [
 function targetsUnobservedChannel(
   p: Extract<Predicate, { kind: typeof PredicateKind.NET }>,
 ): boolean {
-  if (p.urlContains === undefined) return false;
-  const path = (p.urlContains.split('#')[0] ?? '').split('?')[0]?.toLowerCase() ?? '';
-  return DOCUMENT_ONLY_SUFFIXES.some((suffix) => path.endsWith(suffix));
+  const url = p.urlContains;
+  if (undefined === url) return false;
+  return DOCUMENT_ONLY_SUFFIXES.some((suffix) => filterPath(url).endsWith(suffix));
+}
+
+function targetsNativeDownload(p: Extract<Predicate, { kind: typeof PredicateKind.NET }>): boolean {
+  const url = p.urlContains;
+  if (undefined === url) return false;
+  return NATIVE_DOWNLOAD_SUFFIXES.some((suffix) => filterPath(url).endsWith(suffix));
+}
+
+function nativeDownloadReason(p: Extract<Predicate, { kind: typeof PredicateKind.NET }>): string {
+  return (
+    `no fetch or XHR matched ${describeNetFilter(p)}. A native download or document navigation ` +
+    `(an <a href> to a file, a Content-Disposition attachment, <a download>) never goes through ` +
+    `fetch or XMLHttpRequest, so an empty net window is not a 404 and is not evidence the export ` +
+    `failed. This is unobservable on the net channel. Assert the link href, or check the file ` +
+    `outside the browser — Reticle cannot see the bytes land`
+  );
+}
+
+function nativeDownloadMiss(
+  events: ReticleEvent[],
+  p: Extract<Predicate, { kind: typeof PredicateKind.NET }>,
+): EvalResult | undefined {
+  if (!targetsNativeDownload(p)) return undefined;
+  const reason = nativeDownloadReason(p);
+  return {
+    pass: false,
+    failureReason: reason,
+    inconclusive: reason,
+    observed: observedNetCalls(events, p.urlContains),
+    expected: `a fetch or XHR matching ${describeNetFilter(p)}`,
+    assertion: 'net.native-download',
+  };
 }
 
 /**
@@ -396,6 +470,36 @@ function unobservedChannelReason(
     `document does not fetch on its own`
   );
 }
+
+/**
+ * Appended to a zero-match `net` negative whose window starts at SDK attach.
+ *
+ * Every event's `t` is stamped `performance.now() - #start`, where `#start` is taken when the SDK
+ * is constructed, so `t` is never negative and a window with `since === 0` begins AT attach — never
+ * before it. Whatever the page did between navigation start and attach left no event at all, so
+ * "no matching call" over such a window cannot be told apart from "the call was made while nothing
+ * was watching yet".
+ *
+ * The gap is routine rather than exotic: a `fetch` from an effect in a root provider, or a classic
+ * `<script>` at the end of `<body>`, fires before a deferred module script has run. Reported from
+ * the field, the verdict then read as proof the request was never made, and reporters went looking
+ * for the defect in code that was working — restarting dev servers and re-reading providers to
+ * establish the request was invisible rather than absent.
+ *
+ * Same argument as DOCUMENT_ONLY_SUFFIXES one axis over: that one is a channel Reticle does not
+ * watch, this is a stretch of TIME it was not yet watching.
+ *
+ * The grade is deliberately NOT downgraded to `inconclusive`. A missing API call is the finding this
+ * oracle exists to make, and it is the strongest grade available for the startup class — session
+ * restore, feature flags, bootstrap config — which is exactly the class that silently breaks on
+ * reload. Every window an action opens carries `since > 0` and is untouched. What changes is only
+ * what the negative CLAIMS: it stops asserting the request never happened, and names the assertion
+ * that can settle it, because the state such a request produces IS observable after attach.
+ */
+const PRE_ATTACH_CAVEAT =
+  ' — note that this window starts where the SDK attached, and requests made before that are never ' +
+  'captured, so a miss here cannot tell a call that was never made apart from one made before the ' +
+  'page connected; if the call is expected during startup, assert on the state it produces instead';
 
 export function evalNet(
   events: ReticleEvent[],
@@ -529,6 +633,10 @@ export function evalNet(
   // useEffect-double-fire / retry-storm regression class, where the request DID fire (presence passes)
   // but fired the WRONG number of times. Without `count`, the matcher is presence-only (≥1).
   if (p.count !== undefined) {
+    if (0 === matches.length) {
+      const download = nativeDownloadMiss(events, p);
+      if (download !== undefined) return download;
+    }
     if (
       matches.length !== p.count &&
       0 === matches.length &&
@@ -542,15 +650,26 @@ export function evalNet(
         assertion: 'net.count',
       };
     }
-    return evalExactCount({
+    const counted = evalExactCount({
       matched: matches.length,
       want: p.count,
       noun: 'network call(s)',
       filter: describeNetFilter(p),
       assertion: 'net.count',
     });
+    // Same blind head, second door: "saw 0" over a whole-session window is the same claim the
+    // presence branch makes, and just as unable to see a startup call. A `count: 0` assertion is
+    // left alone on purpose — it PASSES here, and turning that green into a non-pass is a grade
+    // change, not a wording one.
+    return 0 === matches.length && 0 === since && counted.failureReason !== undefined
+      ? { ...counted, failureReason: `${counted.failureReason}${PRE_ATTACH_CAVEAT}` }
+      : counted;
   }
   const hit = matches[0];
+  if (hit === undefined) {
+    const download = nativeDownloadMiss(events, p);
+    if (download !== undefined) return download;
+  }
   if (hit === undefined && targetsUnobservedChannel(p) && !sawSubresources) {
     const reason = unobservedChannelReason(p);
     return {
@@ -566,119 +685,12 @@ export function evalNet(
     ? { pass: true, evidence: netEvidence(hit.data) }
     : {
         pass: false,
-        failureReason: `no network call matched ${JSON.stringify(p)}`,
+        failureReason: `no network call matched ${JSON.stringify(p)}${0 === since ? PRE_ATTACH_CAVEAT : ''}`,
         // Same reasoning as the signal miss: "no matching call" cannot be told apart from "the app
         // made no calls at all", and those need different fixes.
         observed: observedNetCalls(events, p.urlContains),
         expected: `at least one call matching ${JSON.stringify(p)}`,
         assertion: 'net.present',
-      };
-}
-
-/** The only console levels Reticle instruments (console.info/debug/trace are NOT patched). */
-const CONSOLE_LEVEL_TYPE: Readonly<Record<string, EventType>> = {
-  log: EventType.CONSOLE_LOG,
-  warn: EventType.CONSOLE_WARN,
-  error: EventType.CONSOLE_ERROR,
-};
-
-export function evalConsole(
-  events: ReticleEvent[],
-  p: Extract<Predicate, { kind: typeof PredicateKind.CONSOLE }>,
-): EvalResult {
-  const since = p.since ?? 0;
-  // Reticle only instruments console.log/warn/error. A level outside that set is never captured,
-  // so its events can't exist — and an `absent` assertion on it would verify NOTHING while
-  // reporting green. Fail loudly instead of false-passing.
-  if (p.level !== undefined && p.level !== 'error' && CONSOLE_LEVEL_TYPE[p.level] === undefined) {
-    return {
-      pass: false,
-      failureReason: `console level '${p.level}' is not captured — Reticle instruments console.log, console.warn, console.error only`,
-      observed: `level '${p.level}' is not instrumented, so no event of it can ever exist`,
-      expected: 'a level Reticle captures: log, warn, or error',
-      assertion: 'console.uninstrumented-level',
-    };
-  }
-  const matches = events.filter((e) => {
-    if (e.t < since) return false;
-    const isErr = e.type === EventType.CONSOLE_ERROR || e.type === EventType.ERROR_UNCAUGHT;
-    if (p.level === undefined) {
-      return (
-        e.type === EventType.CONSOLE_LOG ||
-        e.type === EventType.CONSOLE_WARN ||
-        e.type === EventType.CONSOLE_ERROR ||
-        e.type === EventType.ERROR_UNCAUGHT
-      );
-    }
-    if ('error' === p.level) return isErr;
-    return e.type === CONSOLE_LEVEL_TYPE[p.level];
-  });
-  // A text match narrows the population to entries whose captured message contains the substring.
-  // With `absent: true` this is the whole point: "THIS message did not appear", not "no messages
-  // appeared" — the difference between a regression check and a fragile one that any unrelated
-  // warning anywhere in the app breaks.
-  const wanted = 'contains' in p ? p.contains : undefined;
-  // Captured messages are strings (stringifyArgs in the browser observer), but a malformed or
-  // foreign event must not crash the evaluator: non-strings stringify defensively, and objects
-  // go through JSON.stringify rather than a default toString that would print '[object Object]'.
-  const asText = (v: unknown): string => {
-    if ('string' === typeof v) return v;
-    try {
-      return JSON.stringify(v) ?? '';
-    } catch {
-      return '';
-    }
-  };
-  const matching =
-    wanted !== undefined
-      ? matches.filter((e) => asText(e.data['message']).includes(wanted))
-      : matches;
-  if (true === p.absent) {
-    if (wanted !== undefined && 0 === matching.length && matches.length > 0) {
-      // Other entries exist but none carries the substring: exactly the pass an absence-with-match
-      // asserts. Name both counts so the caller can tell this from a silent window.
-      return {
-        pass: true,
-        evidence: { absent: true, contains: wanted },
-      };
-    }
-    return 0 === matching.length
-      ? { pass: true, evidence: { absent: true } }
-      : {
-          pass: false,
-          failureReason:
-            wanted !== undefined
-              ? `expected no ${p.level ?? 'console'} entry containing ${JSON.stringify(wanted)} but found ${String(matching.length)}`
-              : `expected no ${p.level ?? 'console'} entries but found ${String(matches.length)}`,
-          observed:
-            wanted !== undefined
-              ? `${String(matching.length)} ${p.level ?? 'console'} entr${1 === matching.length ? 'y' : 'ies'} containing ${JSON.stringify(wanted)}`
-              : `${String(matches.length)} ${p.level ?? 'console'} entr${1 === matches.length ? 'y' : 'ies'}`,
-          expected:
-            wanted !== undefined
-              ? `no ${p.level ?? 'console'} entry containing ${JSON.stringify(wanted)}`
-              : `no ${p.level ?? 'console'} entries`,
-          assertion: wanted !== undefined ? 'console.absent-contains' : 'console.absent',
-          evidence: matching.map((e) => e.data),
-        };
-  }
-  return matching.length > 0
-    ? { pass: true, evidence: matching.map((e) => e.data) }
-    : {
-        pass: false,
-        failureReason:
-          wanted !== undefined
-            ? `no ${p.level ?? 'console'} entry containing ${JSON.stringify(wanted)} found`
-            : `no ${p.level ?? 'console'} entries found`,
-        observed:
-          wanted !== undefined
-            ? `no ${p.level ?? 'console'} entry containing ${JSON.stringify(wanted)} in the window`
-            : `no ${p.level ?? 'console'} entries in the window`,
-        expected:
-          wanted !== undefined
-            ? `at least one ${p.level ?? 'console'} entry containing ${JSON.stringify(wanted)}`
-            : `at least one ${p.level ?? 'console'} entry`,
-        assertion: 'console.present',
       };
 }
 

@@ -1,3 +1,4 @@
+import { bodyCaptureRemedy } from './body-capture-remedy.js';
 import {
   ContradictionKind,
   MUTATING_METHODS,
@@ -49,7 +50,7 @@ interface VerifiedInputs {
   /** Did a real frame flush before the wait gave up? */
   settled?: boolean;
   /**
-   * The caller NAMED the expected consequence before acting — an `until`/`predicate` of its own,
+   * The caller named a consequence before acting — an `until`/`predicate` of its own,
    * rather than the default "wait for the page to go idle".
    *
    * This is the epistemic core of the tool: a declaration made before the action cannot be
@@ -68,6 +69,12 @@ interface VerifiedInputs {
    */
   declaredConsequence?: boolean;
   /**
+   * A net the caller named is still open. `waitForPredicate` reports that as `pass: false` ("no
+   * request to …") the instant the budget ends, which made a cold backend `assertion_failed` and a
+   * warm one `proved`. Absence of a settle is not evidence the request never happened — see #669.
+   */
+  namedRequestInFlight?: boolean;
+  /**
    * A write in this window answered `202 Accepted` — the server took the request and has NOT
    * finished processing it.
    */
@@ -83,8 +90,17 @@ interface VerifiedInputs {
    */
   outcomeUnread?: readonly string[];
   /**
+   * The page SDK's version, so the unread-body remedy can check whether it applies.
+   *
+   * This clause is the highest-traffic producer of that advice — every 2xx write whose body went
+   * unread lands here — and it inlined the setting unconditionally, which is what a reporter saw six
+   * times at a repo pinned below the release that introduced it. See body-capture-remedy.ts.
+   */
+  sdkVersion?: string | undefined;
+  /**
    * The declared consequence that held does not depend on the response body — an exact string
-   * rendered, a store path, a signal. See `declaresBodyIndependentChannel`.
+   * rendered, a store path, a signal, a route, or an element located by role / name / testid. See
+   * `declaresBodyIndependentChannel`.
    *
    * The unread-body clause exists for the case where the body is the ONLY channel that could have
    * contradicted the screen (a 200 with batch/GraphQL errors inside). When a body-independent
@@ -171,6 +187,24 @@ export function decideVerified(inputs: VerifiedInputs): VerifiedVerdict {
         'no consequence was declared, so this only waited for the page to go idle and it never ' +
         'did — that is a statement about when Reticle stopped looking, not about the app. Pass ' +
         '`until` naming what the action should cause (a signal, a request, a route, or store state)',
+    };
+  }
+
+  // ABOVE the failure clause, same reason as observationLost: absence is not evidence.
+  //
+  // A `{ net, urlContains }` miss while that URL is still in `stillInFlight` is a window that
+  // closed early, not a request that never happened. The same result object already named the
+  // in-flight POST; calling it `assertion_failed` contradicted that field and flipped green on a
+  // warm backend. UNKNOWN, and the sentence says to re-check once the request lands.
+  if (false === pass && true === inputs.namedRequestInFlight) {
+    return {
+      verified: Verified.UNKNOWN,
+      verifiedReason: VerifiedReason.WINDOW_CLOSED_EARLY,
+      because: unsettledBecause(
+        'the request this assertion named was still in flight when the window closed, so the ' +
+          'consequence was not disproved — it had not finished',
+        inputs.unsettled,
+      ),
     };
   }
 
@@ -288,9 +322,24 @@ export function decideVerified(inputs: VerifiedInputs): VerifiedVerdict {
   // with routeChanges 0, because the text was the nav link already on screen — the real navigation
   // landed 1.8s later. UNKNOWN rather than NO on purpose: the app may well be fine, and reporting a
   // failure we did not observe would be its own false claim.
+  //
+  // `no-fault` rather than `unknown`, once the window settled — the same distinction
+  // `nothing_declared` already draws, gated the same way.
+  //
+  // The two words ask for opposite things. `unknown` means LOOK AGAIN WITH BETTER COVERAGE, so an
+  // agent reading it reasonably concludes the engine could not see, and spends its remaining turns
+  // enabling capture, widening timeouts and re-driving — none of which can help, because the engine
+  // saw the whole window and there was nothing wrong with the evidence. The fault is in the
+  // ASSERTION: it named something that was true before the action, so it cannot tell success from a
+  // no-op. `no-fault` says exactly that, and `because` already carried the remedy that `unknown`
+  // was burying.
+  //
+  // Gated on `true === settled` for the same reason `nothing_declared` is: no-fault claims the whole
+  // window was seen, and a call that returned before the app stopped moving has not earned that.
+  // Unsettled stays `unknown`, which is then the honest word for it.
   if (true === inputs.alreadyTrue) {
     return {
-      verified: Verified.UNKNOWN,
+      verified: true === settled ? Verified.NO_FAULT : Verified.UNKNOWN,
       verifiedReason: VerifiedReason.ALREADY_TRUE,
       because:
         'the declared consequence was already true before this action, so it proves nothing about it — assert something the action CHANGES (a signal, a request, a route, or store state)',
@@ -389,7 +438,8 @@ export function decideVerified(inputs: VerifiedInputs): VerifiedVerdict {
       verifiedReason: VerifiedReason.OUTCOME_UNREAD,
       because:
         `a write returned 2xx with a response body that was never recorded (${outcomeUnread.join('; ')}), so its outcome is unread` +
-        ' — a 200 describes the transport, not the result (a batch reports per-item failures in the body, and every GraphQL error is a 200). Enable it where your app calls connect(): `reticle.connect({ captureNetworkBodies: true })`, then re-run',
+        ' — a 200 describes the transport, not the result (a batch reports per-item failures in the body, and every GraphQL error is a 200). ' +
+        bodyCaptureRemedy(inputs.sdkVersion),
     };
   }
 

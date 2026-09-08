@@ -18,7 +18,7 @@
  * something that never happened. Pure: a predicate in, a description out.
  */
 
-import { PredicateKind } from '@reticlehq/core';
+import { PredicateKind, QueryBy, type ElementQuery } from '@reticlehq/core';
 import type { Predicate } from './predicate-eval.js';
 
 /** A failing call the caller named in advance — matched against the window's real calls. */
@@ -28,7 +28,7 @@ export interface DeclaredNetFailure {
   status?: number;
 }
 
-export interface DeclaredExpectations {
+interface DeclaredExpectations {
   /** Requests the caller declared would FAIL, so failing is the expected outcome, not a disagreement. */
   netFailures: readonly DeclaredNetFailure[];
   /** The caller required something to be ON SCREEN — an element or text, present rather than absent. */
@@ -37,6 +37,56 @@ export interface DeclaredExpectations {
 
 /** Below this, a status is a success or a redirect: not a declared failure. */
 const FAILURE_STATUS_MIN = 400;
+
+/** Statuses that mean the caller was refused — the proof of an auth/authz denial, not a fault. */
+const AUTH_DENIAL_STATUSES = [401, 403] as const;
+
+/** ARIA roles that ARE the error UI — waiting for an alert is how the first report asserted a 401. */
+const DENIAL_ROLES = new Set(['alert', 'alertdialog']);
+
+/**
+ * Phrases that name a denial rather than a success. Conservative and multi-word where a short
+ * token would match a greeting ("invalid date" is not an auth failure).
+ */
+const DENIAL_TEXT_MARKERS = [
+  'access denied',
+  'unauthorized',
+  'forbidden',
+  'invalid key',
+  'invalid credentials',
+  'incorrect email',
+  'incorrect password',
+  'not authorized',
+  'permission denied',
+  'unauthenticated',
+  'not allowed',
+] as const;
+
+function isDenialPhrase(text: string): boolean {
+  const lower = text.toLowerCase();
+  return DENIAL_TEXT_MARKERS.some((marker) => lower.includes(marker));
+}
+
+function isDenialRole(role: string): boolean {
+  return DENIAL_ROLES.has(role.toLowerCase());
+}
+
+function isDenialQuery(query: ElementQuery): boolean {
+  if (undefined !== query.role && isDenialRole(query.role)) return true;
+  if (QueryBy.ROLE === query.by && undefined !== query.value && isDenialRole(query.value)) {
+    return true;
+  }
+  for (const field of [query.name, query.text, query.value, query.label]) {
+    if ('string' === typeof field && isDenialPhrase(field)) return true;
+  }
+  return false;
+}
+
+function pushAuthDenialStatuses(into: DeclaredNetFailure[]): void {
+  for (const status of AUTH_DENIAL_STATUSES) {
+    into.push({ status });
+  }
+}
 
 export function declaredExpectations(predicate: Predicate | undefined): DeclaredExpectations {
   const netFailures: DeclaredNetFailure[] = [];
@@ -59,8 +109,16 @@ export function declaredExpectations(predicate: Predicate | undefined): Declared
         return;
       }
       case PredicateKind.ELEMENT:
+        if (true !== p.absent) {
+          rendersContent = true;
+          if (isDenialQuery(p.query)) pushAuthDenialStatuses(netFailures);
+        }
+        return;
       case PredicateKind.TEXT:
-        if (true !== p.absent) rendersContent = true;
+        if (true !== p.absent) {
+          rendersContent = true;
+          if (isDenialPhrase(p.contains)) pushAuthDenialStatuses(netFailures);
+        }
         return;
       default:
         return;
@@ -76,13 +134,15 @@ export function declaredExpectations(predicate: Predicate | undefined): Declared
  *
  * The unread-body clause exists for the case where the body is the ONLY channel that could have
  * contradicted the screen — a 200 with per-item failures inside, a GraphQL error that is also a
- * 200. A declared string on screen, store path, or signal that held is a different channel, and
- * grading `unknown` there costs a real verdict (measured: a 201 plus the unique row, unread body,
- * agent went to enable capture instead of finishing the drive).
+ * 200. A declared string on screen, store path, signal, route, or an element located by role /
+ * name / testid that held is a different channel, and grading `unknown` there costs a real
+ * verdict (measured: a 201 plus the unique row, unread body, agent went to enable capture instead
+ * of finishing the drive).
  *
  * Same conservatism as `declaredExpectations`: only the top level and `allOf`. An `anyOf` branch
  * may never have held, and honouring it would skip the unread caveat on the strength of a net
- * success that was the branch that actually matched.
+ * success that was the branch that actually matched. An `absent` element is not a consequence the
+ * body cannot own.
  */
 export function declaresBodyIndependentChannel(predicate: Predicate | undefined): boolean {
   if (predicate === undefined) return false;
@@ -95,9 +155,17 @@ export function declaresBodyIndependentChannel(predicate: Predicate | undefined)
         return true !== p.absent;
       case PredicateKind.SIGNAL:
       case PredicateKind.STATE:
+      case PredicateKind.ROUTE:
         return true;
       case PredicateKind.ELEMENT:
-        return true !== p.absent && (p.query.value !== undefined || p.query.text !== undefined);
+        return (
+          true !== p.absent &&
+          (p.query.value !== undefined ||
+            p.query.text !== undefined ||
+            p.query.role !== undefined ||
+            p.query.name !== undefined ||
+            p.query.testid !== undefined)
+        );
       default:
         return false;
     }

@@ -6,6 +6,7 @@ import { noteEmptyRead } from './observed-nothing.js';
 import { z } from 'zod';
 import { aliasParam } from './alias-args.js';
 import {
+  CONSOLE_ATTACH_NOTE,
   CONSOLE_LEVELS,
   ReticleCommand,
   DEFAULT_ASSERT_TIMEOUT_MS,
@@ -23,6 +24,8 @@ import {
 import { buildReactionReport } from '../events/reaction.js';
 import { findContradictions } from '../events/contradictions.js';
 import { evaluatePredicate, waitForPredicate, PredicateSchema } from '../events/predicate.js';
+import { resolveSessionWithin } from '../session/resolve-within.js';
+import { WALL_CLOCK } from '../session/wall-clock.js';
 import { parsePredicate } from '../events/predicate-parse.js';
 import {
   matchNet,
@@ -47,8 +50,6 @@ import {
   healthEnvelope,
   bufferEnvelope,
 } from '../session/session-health.js';
-import type { Session } from '../session/session.js';
-import type { Predicate } from '../events/predicate.js';
 import {
   assertsDerivedIpcStatus,
   DERIVED_IPC_STATUS_ADVICE,
@@ -56,7 +57,7 @@ import {
   PRESENCE_ONLY_ADVICE,
 } from './assert-grade.js';
 import { assertVerdict } from './assert-verdict.js';
-import { assertSource } from './assert-source.js';
+import { assertionSource } from './assert-source.js';
 import { isChangeUndeclared } from '../honesty/undeclared-change.js';
 import { openSessionIntents } from '../intent/open-intents.js';
 import {
@@ -65,6 +66,7 @@ import {
   linkInlineIntent,
 } from '../intent/inline-intent.js';
 import { bodiesNotCaptured } from '../honesty/uncaptured-bodies.js';
+import { bodyClauseRefusal } from '../honesty/body-capture-remedy.js';
 import { withControl } from '../session/control-envelope.js';
 import { asString, asNumber, asRecord } from './tools-helpers.js';
 import { type ToolDef, intentArg, sessionIdShape, commandOrThrow } from './tool-kit.js';
@@ -82,28 +84,6 @@ const bufferOutputShape = {
       'Present only when the event buffer evicted events — a negative result may then be a false negative.',
     ),
 };
-
-/**
- * The file:line an assertion may report — see `assertSource`.
- *
- * Neither `reticle_assert` nor `reticle_wait_for` drives anything, so the last act's source is about
- * some earlier action and not about this verdict. The pointer comes from the assertion's own matched
- * evidence; the last driven control is borrowed only for a RED whose predicate has no DOM clause at
- * all, which is the failure that genuinely has no element to point at.
- */
-function assertionSource(
-  session: Session,
-  predicate: Predicate,
-  verdict: { pass: boolean; evidence?: unknown },
-): { source?: string } {
-  const source = assertSource({
-    predicate,
-    evidence: verdict.evidence,
-    pass: verdict.pass,
-    lastActSource: session.lastAct.source(),
-  });
-  return source === undefined ? {} : { source };
-}
 
 /**
  * Drop `sessionId` from an event in a response the caller scoped to ONE session.
@@ -256,6 +236,7 @@ export const OBSERVE_TOOLS: ToolDef[] = [
       const contradictions = findContradictions(filtered, {
         currentDocumentId: session.currentDocumentId,
         currentEditEpoch: session.currentEditEpoch,
+        appOrigin: session.url,
         ...(judgingTheAct ? { ...session.lastAct.effect(), actionSince: actCursor } : {}),
       });
       // carry session health — a throttled tab means the observed timeline may be incomplete.
@@ -282,7 +263,9 @@ export const OBSERVE_TOOLS: ToolDef[] = [
       until: PredicateSchema.optional().describe("Alias for `predicate` (act_and_wait's name)."),
       timeout_ms: timeoutMsSchema
         .optional()
-        .describe('Maximum wait in milliseconds. Default: 4000.'),
+        .describe(
+          'Maximum wait in milliseconds. Default: 4000. Capped at 55000: your MCP client aborts the request before a longer wait can return, so a bound above this would be advertised and not deliverable. To outlast it, poll — several short waits, each of which returns a verdict.',
+        ),
       since: cursorSchema
         .optional()
         .describe('Cursor from a prior reticle_act — scopes the wait to events after that act.'),
@@ -334,17 +317,23 @@ export const OBSERVE_TOOLS: ToolDef[] = [
         ),
     },
     handler: async (deps, args) => {
-      const session = deps.sessions.resolve(asString(args['sessionId']));
+      const waitBudget = asNumber(args['timeout_ms']) ?? DEFAULT_ASSERT_TIMEOUT_MS;
+      // Spend the budget waiting for the APP as well as for the predicate. See resolve-within.
+      const session = await resolveSessionWithin(
+        deps.sessions,
+        asString(args['sessionId']),
+        waitBudget,
+        WALL_CLOCK,
+      );
       // `until` is act_and_wait's name for this — see alias-args.ts.
       const predicate = parsePredicate(aliasParam(args, 'predicate', ['until'])['predicate']);
+      // Refused up front rather than waited out: a body clause this session cannot answer would
+      // burn the whole timeout to report something knowable now. See #801(C).
+      const bodyRefusal = bodyClauseRefusal(predicate, session);
+      if (bodyRefusal !== undefined) throw new Error(bodyRefusal);
       // Honesty: explicit since wins; else default to the last act's cursor; else the whole buffer.
       const since = asNumber(args['since']) ?? session.lastAct.cursor() ?? 0;
-      const verdict = await waitForPredicate(
-        session,
-        predicate,
-        asNumber(args['timeout_ms']) ?? DEFAULT_ASSERT_TIMEOUT_MS,
-        since,
-      );
+      const verdict = await waitForPredicate(session, predicate, waitBudget, since);
       // match reticle_assert — wrap with control + session health (throttle matters most while blocking)
       // and the buffer envelope, so a verdict reached over an evicted window says so.
       return withControl(session, {
@@ -380,7 +369,7 @@ export const OBSERVE_TOOLS: ToolDef[] = [
       timeout_ms: timeoutMsSchema
         .optional()
         .describe(
-          'If > 0, wait up to this many milliseconds before failing. Default: 0 (evaluate once).',
+          'If > 0, wait up to this many milliseconds before failing. Default: 0 (evaluate once). Capped at 55000: your MCP client aborts the request before a longer wait can return, so a bound above this would be advertised and not deliverable. To outlast it, poll — several short waits, each of which returns a verdict.',
         ),
       since: cursorSchema
         .optional()
@@ -456,10 +445,20 @@ export const OBSERVE_TOOLS: ToolDef[] = [
         ),
     },
     handler: async (deps, args) => {
-      const session = deps.sessions.resolve(asString(args['sessionId']));
+      const timeout = asNumber(args['timeout_ms']) ?? 0;
+      // Spend the budget waiting for the APP as well as for the predicate. See resolve-within.
+      const session = await resolveSessionWithin(
+        deps.sessions,
+        asString(args['sessionId']),
+        timeout,
+        WALL_CLOCK,
+      );
       // `until` is act_and_wait's name for this — see alias-args.ts.
       const predicate = parsePredicate(aliasParam(args, 'predicate', ['until'])['predicate']);
-      const timeout = asNumber(args['timeout_ms']) ?? 0;
+      // Refused up front rather than waited out: a body clause this session cannot answer would
+      // burn the whole timeout to report something knowable now. See #801(C).
+      const bodyRefusal = bodyClauseRefusal(predicate, session);
+      if (bodyRefusal !== undefined) throw new Error(bodyRefusal);
       // Honesty: explicit since wins; else default to the last act's cursor; else the whole buffer.
       const since = asNumber(args['since']) ?? session.lastAct.cursor() ?? 0;
       // Declared BEFORE the verdict, so the undeclared-change read below finds it open and stays
@@ -506,11 +505,23 @@ export const OBSERVE_TOOLS: ToolDef[] = [
       // The id is checked HERE rather than only inside the helper so a caller that declared no intent
       // touches nothing at all, not even the clock.
       if (intentId !== undefined && Verified.YES === decision['verified']) {
-        await dischargeInlineIntent(deps, asString(args['sessionId']), intentId, {
-          verdictId: inlineVerdictId(ReticleTool.ASSERT, deps.now()),
-          grade: gradeOfPredicate(predicate),
-          at: deps.now(),
-        });
+        await dischargeInlineIntent(
+          deps,
+          asString(args['sessionId']),
+          intentId,
+          {
+            verdictId: inlineVerdictId(ReticleTool.ASSERT, deps.now()),
+            grade: gradeOfPredicate(predicate),
+            at: deps.now(),
+          },
+          /*
+           * An assertion has no element of its own — it observes, it does not act. The file it names
+           * is the one the LAST action touched, which is the code path that produced the state being
+           * asserted about. Already remembered on the session for exactly this reason: an assertion
+           * whose failure has nothing to point at still needs to name a file.
+           */
+          session.lastAct.source(),
+        );
       }
       // Journal the verdict so a LATER turn can read what this one proved. A verdict that lives only
       // in the response lives only in the agent's context window, which is the copy a compaction
@@ -630,7 +641,7 @@ export const OBSERVE_TOOLS: ToolDef[] = [
           {
             calls,
             ...(droppedOldest > 0 ? { total: matched.length, droppedOldest } : {}),
-            ...(bodies ? bodiesNotCaptured(calls) : {}),
+            ...(bodies ? bodiesNotCaptured(calls, session.sdkVersion) : {}),
             ...buffer,
           },
           'calls',
@@ -712,7 +723,11 @@ export const OBSERVE_TOOLS: ToolDef[] = [
             ? { logs, total: matched.length, droppedOldest, ...buffer }
             : { logs, ...buffer },
           'logs',
-          { noun: 'console lines' },
+          // Same gate as the predicate path, for the same reason and at the same price: the blind
+          // stretch is between page load and attach, so only a window that starts at attach can
+          // contain it. A read since an action already began after the channel was live, and
+          // stapling 369 bytes onto every quiet read would be paying for a caveat that is not true.
+          { noun: 'console lines', ...(0 === since ? { caveat: CONSOLE_ATTACH_NOTE } : {}) },
         ),
       );
     },

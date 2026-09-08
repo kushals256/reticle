@@ -114,6 +114,16 @@ export const GLOW_FADE_MS = 250;
 export const GLOW_ON = '1';
 export const GLOW_OFF = '0';
 export const DATA_ON = 'data-on';
+/** The overlay root's state attribute, which the shell styles resolve colour against. */
+export const STATE_ATTR = 'data-reticle-state';
+/**
+ * Not a SessionState: there is no session. It is the absence of one, said out loud.
+ *
+ * Kept off `SessionState` deliberately — that enum crosses the wire, and this state exists only
+ * because nothing crossed the wire.
+ */
+export const UNREACHABLE_STATE = 'unreachable';
+
 /** Overlay-root attribute toggled when the HUD is collapsed to the FAB. */
 export const MIN_ATTR = 'data-reticle-min';
 /** Overlay-root attribute toggled when the agent chat panel is open. */
@@ -182,7 +192,7 @@ export const LOG_TIMESTAMPS_ATTR = 'data-reticle-log-ts';
 /** When 1, HUD motion is reduced for accessibility. */
 export const REDUCE_MOTION_ATTR = 'data-reticle-reduce-motion';
 /** Docs opened from the settings footer. */
-export const MCP_DOCS_URL =
+export const MCP_DOCS_URL: string =
   'https://github.com/reticlehq/reticle/blob/main/docs/getting-started.md';
 /** HUD has been dragged off the default dock - positioned with explicit left/top. */
 export const HUD_DRAGGED_ATTR = 'data-dragged';
@@ -194,6 +204,26 @@ export const HUD_DRAG_THRESHOLD_PX = 4;
 /** Minimum gap between a dragged HUD and the viewport edge. */
 export const HUD_DOCK_MARGIN_PX = 8;
 /** Interactive nodes inside the drag handle that must not start a drag (not the FAB itself). */
-export const HUD_DRAG_IGNORE_SEL =
-  '[data-reticle-pause], [data-reticle-annotate-btn], [data-reticle-markers-btn], [data-reticle-clear-marks], [data-reticle-end], [data-reticle-min-btn], [data-reticle-settings-btn], [data-reticle-settings-panel], [data-reticle-report-btn], [data-reticle-report-panel], [data-reticle-chat-panel], [data-reticle-chat-toggle], [data-reticle-workspace-btn], [data-reticle-workspace-menu], [data-reticle-copy], [data-reticle-export], [data-reticle-send], input, textarea, select, a, .reticle-head-ctl, [data-reticle-tally], .reticle-maxhint';
+export const HUD_DRAG_IGNORE_SEL: string =
+  '[data-reticle-pause], [data-reticle-annotate-btn], [data-reticle-markers-btn], [data-reticle-clear-marks], [data-reticle-end], [data-reticle-min-btn], [data-reticle-settings-btn], [data-reticle-settings-panel], [data-reticle-report-btn], [data-reticle-report-panel], [data-reticle-chat-panel], [data-reticle-chat-toggle], [data-reticle-workspace-btn], [data-reticle-workspace-menu], [data-reticle-copy], [data-reticle-export], input, textarea, select, a, .reticle-head-ctl, [data-reticle-tally], .reticle-maxhint';
 export const THROTTLED_ATTR = 'data-reticle-throttled';
+
+/**
+ * The toolbar tooltip's layer, INSIDE the HUD's own stacking context.
+ *
+ * A tooltip is the one element that is always transient and always meant to be read, so it belongs
+ * above everything else the HUD draws. It was at 3, below the chat panel (8) and the settings panel
+ * (30) — every one of them a sibling — so hovering a menu item with a panel open showed the tooltip
+ * behind the panel.
+ *
+ * Defined HERE rather than beside the other z-index constants: `presenter-styles.ts` imports every
+ * style module, so a constant there and a rule in `presenter-shell-styles.ts` form a CYCLE — the
+ * template literal evaluates before the import resolves and emits `z-index:undefined`, which
+ * browsers drop silently. A leaf module has no such edge.
+ *
+ * Above the HUD's panels and deliberately NOT above the page: the HUD lives in one stacking context
+ * on purpose, and a tooltip that outranked the document would paint over the app being verified.
+ * The headroom is for panels that do not exist yet; a test compares this against every panel's
+ * declared z-index rather than pinning the number, so a future panel cannot quietly overtake it.
+ */
+export const Z_HUD_TOOLTIP = 100;
