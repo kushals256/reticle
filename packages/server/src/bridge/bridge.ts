@@ -586,6 +586,9 @@ export class Bridge {
             },
             { version: SERVER_VERSION, contract: CONTRACT_FINGERPRINT },
           );
+          // Kept so a remedy can check whether it applies to THIS page — see body-capture-remedy.
+          session.sdkVersion = parsed.sdkVersion;
+          session.captureBodies = parsed.captureBodies;
           if (skew !== undefined) {
             log('version_skew', {
               sessionId: session.id,

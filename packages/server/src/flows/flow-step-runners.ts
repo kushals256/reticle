@@ -18,6 +18,7 @@ import {
 } from '@reticlehq/core';
 import { ReticleTool } from '../tools/tool-names.js';
 import { replayActionArgs } from './replay.js';
+import { anchorFieldName } from './flows.js';
 import type { FlowReplaySession, Sleep } from './flow-replay.js';
 import {
   anchorLabel,
@@ -112,7 +113,15 @@ export async function runRoleStep(
       },
     };
   }
-  return await actOnResolvedRef(session, step, index, label, ref, confirmDangerous);
+  return await actOnResolvedRef(
+    session,
+    step,
+    index,
+    label,
+    ref,
+    confirmDangerous,
+    anchorFieldName(anchor),
+  );
 }
 
 /**
@@ -126,6 +135,12 @@ async function actOnResolvedRef(
   label: string,
   ref: string,
   confirmDangerous: boolean,
+  /**
+   * The field name a redacted fill is supplied under, from `anchorFieldName` — the SAME function
+   * redaction uses to decide what to hide. Without it a role-anchored secret is redacted at save
+   * and looked up at replay under no name at all, so the flow types the placeholder into the form.
+   */
+  field?: string,
 ): Promise<FlowStepResult> {
   session.beginAction?.(ReticleTool.FLOW_REPLAY, { ref, action: step.action ?? '' });
   let act;
@@ -133,7 +148,7 @@ async function actOnResolvedRef(
     act = await session.command(ReticleCommand.ACT, {
       ref,
       action: step.action ?? '',
-      args: replayActionArgs(step.args, confirmDangerous),
+      args: replayActionArgs(step.args, confirmDangerous, field),
     });
   } finally {
     session.finishAction?.();
@@ -177,7 +192,7 @@ export async function runComponentStep(
     act = await session.command(ReticleCommand.ACT, {
       ref,
       action: step.action ?? '',
-      args: replayActionArgs(step.args, confirmDangerous),
+      args: replayActionArgs(step.args, confirmDangerous, anchorFieldName(anchor)),
     });
   } finally {
     // Close on every exit so a throwing step cannot leak the window onto the next step's events.
@@ -290,7 +305,9 @@ export async function runSequenceStep(
     live.push({
       ref,
       action: sub.action ?? '',
-      args: replayActionArgs(sub.args, confirmDangerous),
+      // Each sub-step carries its OWN anchor, so each gets its own field name. A sequence that ends
+      // in a login is the shape this was reported on, and the sub-step is where the fill lives.
+      args: replayActionArgs(sub.args, confirmDangerous, anchorFieldName(sub.anchor)),
     });
   }
   session.beginAction?.(ReticleTool.FLOW_REPLAY, { steps: live.length });
